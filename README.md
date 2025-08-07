@@ -30,11 +30,10 @@ A comprehensive IoT monitoring and automation system for greenhouse management, 
 - **Password**: `12345678`
 - **IP Address**: `192.168.4.1`
 - **Purpose**: Always available for configuration
-![SCREENSHOT](https://github.com/kalharaCK/TASK01_ESP32-STA-AP-Mode-Hybrid/blob/main/screenshot.jpg)
-
 
 ### Station (STA) Mode
 - **Connects to**: Your home WiFi network
 - **IP Address**: Assigned by your router (DHCP)
 - **Purpose**: Internet connectivity and remote access
 
+![SCREENSHOT](https://github.com/kalharaCK/TASK01_ESP32-STA-AP-Mode-Hybrid/blob/main/screenshot.jpg)
