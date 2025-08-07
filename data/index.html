@@ -17,6 +17,8 @@
       --card-bg: #242837;
       --accent-green: #00ff88;
       --accent-blue: #0099ff;
+      --accent-orange: #ff9500;
+      --accent-red: #ff4444;
       --text-primary: #ffffff;
       --text-secondary: #b4bcd0;
       --border-color: #2d3748;
@@ -74,6 +76,46 @@
       color: var(--text-secondary);
       font-size: 1.1rem;
       font-weight: 400;
+    }
+
+    .system-status {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin: 1rem 0;
+      flex-wrap: wrap;
+    }
+
+    .status-chip {
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: 2px solid transparent;
+      transition: all 0.3s ease;
+    }
+
+    .status-chip.online {
+      background: rgba(0, 255, 136, 0.1);
+      border-color: var(--accent-green);
+      color: var(--accent-green);
+    }
+
+    .status-chip.offline {
+      background: rgba(255, 68, 68, 0.1);
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+
+    .status-chip.connecting {
+      background: rgba(255, 149, 0, 0.1);
+      border-color: var(--accent-orange);
+      color: var(--accent-orange);
     }
 
     .dashboard-grid {
@@ -144,8 +186,8 @@
     .gauge-container {
       position: relative;
       aspect-ratio: 1;
-      width: 220px;
-      height: 220px;
+      width: 180px;
+      height: 180px;
       margin: 0 auto;
     }
 
@@ -155,13 +197,13 @@
       position: relative;
       border-radius: 50%;
       background: conic-gradient(from 0deg, var(--accent-green) 0%, var(--accent-blue) 70%, var(--border-color) 70%);
-      padding: 8px;
-      animation: rotate 3s ease-in-out infinite alternate;
+      padding: 6px;
+      animation: gaugeRotate 4s ease-in-out infinite alternate;
     }
 
-    @keyframes rotate {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(2deg); }
+    @keyframes gaugeRotate {
+      0% { transform: rotate(-1deg); }
+      100% { transform: rotate(1deg); }
     }
 
     .gauge-inner {
@@ -177,29 +219,48 @@
     }
 
     .gauge-value {
-      font-size: 2.2rem;
+      font-size: 1.8rem;
       font-weight: 700;
       background: var(--gradient-accent);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
       line-height: 1;
-      min-height: 2.5rem;
+      min-height: 2rem;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
-      word-break: keep-all;
-      white-space: nowrap;
     }
 
     .gauge-label {
-      font-size: 0.9rem;
+      font-size: 0.8rem;
       color: var(--text-secondary);
       margin-top: 0.5rem;
       font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 0.05em;
+    }
+
+    .gauge-trend {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      margin-top: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    /* Temperature gauge added */
+    .temperature-card {
+      grid-column: span 2;
+    }
+
+    .temperature-grid {
+      display: flex;
+      justify-content: space-around;
+      gap: 1rem;
+      flex-wrap: wrap;
     }
 
     /* Status Display */
@@ -243,12 +304,12 @@
     }
 
     .status-connected { background: var(--accent-green); }
-    .status-disconnected { background: #ff4444; }
-    .status-connecting { background: #ffaa00; }
+    .status-disconnected { background: var(--accent-red); }
+    .status-connecting { background: var(--accent-orange); }
 
     @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.1); }
     }
 
     /* Form Elements */
@@ -351,6 +412,56 @@
       flex-wrap: wrap;
     }
 
+    /* Toggle Switch */
+    .toggle-group {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      background: var(--secondary-bg);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .toggle-switch {
+      width: 50px;
+      height: 24px;
+      background: var(--border-color);
+      border-radius: 12px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .toggle-switch.active {
+      background: var(--accent-green);
+    }
+
+    .toggle-slider {
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.3s ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .toggle-switch.active .toggle-slider {
+      transform: translateX(26px);
+    }
+
     /* Message Display */
     .message {
       padding: 1rem;
@@ -358,6 +469,7 @@
       margin-top: 1rem;
       border-left: 4px solid;
       animation: slideIn 0.3s ease;
+      position: relative;
     }
 
     @keyframes slideIn {
@@ -373,14 +485,59 @@
 
     .message.error {
       background: rgba(255, 68, 68, 0.1);
-      border-color: #ff4444;
-      color: #ff6b6b;
+      border-color: var(--accent-red);
+      color: var(--accent-red);
     }
 
     .message.info {
       background: rgba(0, 153, 255, 0.1);
       border-color: var(--accent-blue);
       color: var(--accent-blue);
+    }
+
+    .message.warning {
+      background: rgba(255, 149, 0, 0.1);
+      border-color: var(--accent-orange);
+      color: var(--accent-orange);
+    }
+
+    /* Loading Animation */
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid var(--border-color);
+      border-top: 3px solid var(--accent-green);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Charts and Data */
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .data-row:last-child {
+      border-bottom: none;
+    }
+
+    .data-label {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .data-value {
+      color: var(--text-primary);
+      font-weight: 600;
     }
 
     /* Responsive Design */
@@ -409,43 +566,90 @@
       .btn {
         width: 100%;
       }
+
+      .sensor-grid {
+        gap: 1rem;
+      }
+
+      .gauge-container {
+        width: 150px;
+        height: 150px;
+      }
+
+      .system-status {
+        flex-direction: column;
+      }
+
+      .temperature-card {
+        grid-column: span 1;
+      }
     }
 
-    /* Loading Animation */
-    .loading {
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border: 3px solid var(--border-color);
-      border-top: 3px solid var(--accent-green);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
+    /* Connection quality indicators */
+    .signal-strength {
+      display: flex;
+      gap: 2px;
+      align-items: flex-end;
     }
 
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    .signal-bar {
+      width: 4px;
+      height: 8px;
+      background: var(--border-color);
+      border-radius: 1px;
     }
+
+    .signal-bar.active {
+      background: var(--accent-green);
+    }
+
+    .signal-bar:nth-child(2) { height: 12px; }
+    .signal-bar:nth-child(3) { height: 16px; }
+    .signal-bar:nth-child(4) { height: 20px; }
   </style>
 </head>
 <body>
   <div class="container">
+    <!-- Header -->
     <div class="header">
       <h1>Greenhouse Control</h1>
-      <p>IoT Monitoring System</p>
+      <p>IoT Monitoring & Automation System</p>
+      <div class="system-status" id="systemStatus">
+        <div class="status-chip connecting">
+          <div class="loading"></div>
+          Initializing...
+        </div>
+      </div>
     </div>
 
+    <!-- Main Dashboard Grid -->
     <div class="dashboard-grid">
-      <div class="card">
+      <!-- Environmental Sensors Card -->
+      <div class="card temperature-card">
         <h2 class="card-title">
+          
           Environmental Sensors
         </h2>
-        <div class="sensor-grid">
+        <div class="temperature-grid">
+          <div class="gauge-container">
+            <div class="gauge">
+              <div class="gauge-inner">
+                <div class="gauge-value" id="temperatureValue">--°C</div>
+                <div class="gauge-label">Temperature</div>
+                <div class="gauge-trend" id="tempTrend">
+                  <span>--</span>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="gauge-container">
             <div class="gauge">
               <div class="gauge-inner">
                 <div class="gauge-value" id="humidityValue">--%</div>
                 <div class="gauge-label">Humidity</div>
+                <div class="gauge-trend" id="humidityTrend">
+                  <span>--</span>
+                </div>
               </div>
             </div>
           </div>
@@ -454,14 +658,19 @@
               <div class="gauge-inner">
                 <div class="gauge-value" id="lightValue">-- lx</div>
                 <div class="gauge-label">Light Level</div>
+                <div class="gauge-trend" id="lightTrend">
+                  <span>--</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
+      <!-- WiFi Status Card -->
       <div class="card">
         <h2 class="card-title">
+          
           Network Status
         </h2>
         <div class="status-display" id="wifiStatusDisplay">
@@ -472,8 +681,10 @@
         </div>
       </div>
 
+      <!-- WiFi Configuration Card -->
       <div class="card">
         <h2 class="card-title">
+          
           WiFi Configuration
         </h2>
         <div class="form-group">
@@ -494,43 +705,280 @@
         </div>
         <div id="connectionMessage"></div>
       </div>
+
+      <!-- Automation Settings Card -->
+      <div class="card">
+        <h2 class="card-title">
+          
+          Automation Thresholds
+        </h2>
+        <div class="form-group">
+          <label class="form-label" for="tempMin">Min Temperature (°C)</label>
+          <input type="number" id="tempMin" class="form-input" placeholder="e.g. 18" min="0" max="50" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="tempMax">Max Temperature (°C)</label>
+          <input type="number" id="tempMax" class="form-input" placeholder="e.g. 28" min="0" max="50" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="humidityThreshold">Humidity Threshold (%)</label>
+          <input type="number" id="humidityThreshold" class="form-input" placeholder="e.g. 70" min="0" max="100" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="lightThreshold">Light Level Threshold (lx)</label>
+          <input type="number" id="lightThreshold" class="form-input" placeholder="e.g. 1000" min="0" max="10000" />
+        </div>
+        <button class="btn btn-primary" onclick="saveThresholds()">Save Thresholds</button>
+        <div id="thresholdMessage"></div>
+      </div>
+
+      <!-- Control Panel Card -->
+      <div class="card">
+        <h2 class="card-title">
+          
+          Automation Control
+        </h2>
+        <div class="toggle-group">
+          <div class="toggle">
+            <div class="toggle-switch" id="tempToggle" onclick="toggleAutoTemperature()">
+              <div class="toggle-slider"></div>
+            </div>
+            <span>Auto Temperature Control</span>
+          </div>
+          <div class="toggle">
+            <div class="toggle-switch" id="humidityToggle" onclick="toggleAutoHumidity()">
+              <div class="toggle-slider"></div>
+            </div>
+            <span>Auto Humidity Control</span>
+          </div>
+        </div>
+        <div class="toggle-group">
+          <div class="toggle">
+            <div class="toggle-switch" id="lightToggle" onclick="toggleAutoLight()">
+              <div class="toggle-slider"></div>
+            </div>
+            <span>Auto Light Control</span>
+          </div>
+          <div class="toggle">
+            <div class="toggle-switch" id="irrigationToggle" onclick="toggleAutoIrrigation()">
+              <div class="toggle-slider"></div>
+            </div>
+            <span>Auto Irrigation System</span>
+          </div>
+        </div>
+        <div id="controlMessage"></div>
+      </div>
+
+      <!-- System Information Card -->
+      <div class="card">
+        <h2 class="card-title">
+          <div class="card-icon">ℹ️</div>
+          System Information
+        </h2>
+        <div class="status-display" id="systemInfo">
+          <div class="data-row">
+            <span class="data-label">System Uptime</span>
+            <span class="data-value" id="uptime">--</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Memory Usage</span>
+            <span class="data-value" id="memory">--</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Last Update</span>
+            <span class="data-value" id="lastUpdate">--</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">Data Points Logged</span>
+            <span class="data-value" id="dataPoints">--</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
-    // Import the Firebase SDKs you need
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
-
-    // Your Firebase configuration object
-    const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_AUTH_DOMAIN",
-      databaseURL: "YOUR_DATABASE_URL",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_STORAGE_BUCKET",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
+    // Enhanced State Management
+    let systemState = {
+      sensors: {
+        temperature: { current: null, previous: null, trend: 'stable' },
+        humidity: { current: null, previous: null, trend: 'stable' },
+        light: { current: null, previous: null, trend: 'stable' }
+      },
+      automation: {
+        temperature: false,
+        humidity: false,
+        light: false,
+        irrigation: false
+      },
+      thresholds: {
+        tempMin: 18,
+        tempMax: 28,
+        humidity: 70,
+        light: 1000
+      },
+      connection: {
+        status: 'connecting',
+        lastUpdate: null,
+        retryCount: 0
+      },
+      system: {
+        uptime: 0,
+        dataPoints: 0,
+        startTime: Date.now()
+      }
     };
 
-    // Initialize Firebase
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-
-    // --- Firebase Data Listeners ---
-
-    // Listen for the latest sensor readings from the database
-    const latestLogRef = ref(db, 'sensors/esp32_01/latest');
-
-    onValue(latestLogRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        document.getElementById("humidityValue").textContent = `${data.humidity}%`;
-        document.getElementById("lightValue").textContent = `${data.light_level} lx`;
-      }
+    // Initialize dashboard
+    document.addEventListener('DOMContentLoaded', function() {
+      updateSystemStatus('connecting', 'Initializing system...');
+      startSensorSimulation();
+      loadStoredSettings();
+      
+      // Start periodic updates
+      setInterval(updateSensors, 3000);
+      setInterval(updateWiFiStatus, 5000);
+      setInterval(updateSystemInfo, 1000);
+      
+      // Initial updates
+      updateWiFiStatus();
+      updateSystemInfo();
     });
 
-    // --- User Interaction Functions ---
+    function startSensorSimulation() {
+      // Initialize with reasonable values
+      systemState.sensors.temperature.current = 22 + Math.random() * 6;
+      systemState.sensors.humidity.current = 60 + Math.random() * 20;
+      systemState.sensors.light.current = 500 + Math.random() * 1000;
+      
+      updateSensorDisplays();
+    }
+
+    function updateSensors() {
+      // Simulate realistic sensor readings with trends
+      const temp = systemState.sensors.temperature;
+      const humidity = systemState.sensors.humidity;
+      const light = systemState.sensors.light;
+      
+      // Store previous values
+      temp.previous = temp.current;
+      humidity.previous = humidity.current;
+      light.previous = light.current;
+      
+      // Generate new readings with some continuity
+      temp.current = Math.max(15, Math.min(35, temp.current + (Math.random() - 0.5) * 2));
+      humidity.current = Math.max(30, Math.min(90, humidity.current + (Math.random() - 0.5) * 5));
+      light.current = Math.max(0, Math.min(2000, light.current + (Math.random() - 0.5) * 200));
+      
+      // Calculate trends
+      temp.trend = calculateTrend(temp.previous, temp.current);
+      humidity.trend = calculateTrend(humidity.previous, humidity.current);
+      light.trend = calculateTrend(light.previous, light.current);
+      
+      systemState.system.dataPoints++;
+      systemState.connection.lastUpdate = new Date();
+      
+      updateSensorDisplays();
+      checkThresholds();
+    }
+
+    function calculateTrend(previous, current) {
+      if (previous === null) return 'stable';
+      const diff = current - previous;
+      if (Math.abs(diff) < 0.5) return 'stable';
+      return diff > 0 ? 'rising' : 'falling';
+    }
+
+    function updateSensorDisplays() {
+      const temp = systemState.sensors.temperature;
+      const humidity = systemState.sensors.humidity;
+      const light = systemState.sensors.light;
+      
+      document.getElementById("temperatureValue").textContent = `${temp.current.toFixed(1)}°C`;
+      document.getElementById("humidityValue").textContent = `${humidity.current.toFixed(0)}%`;
+      document.getElementById("lightValue").textContent = `${light.current.toFixed(0)} lx`;
+      
+      // Update trends
+      document.getElementById("tempTrend").innerHTML = getTrendIcon(temp.trend);
+      document.getElementById("humidityTrend").innerHTML = getTrendIcon(humidity.trend);
+      document.getElementById("lightTrend").innerHTML = getTrendIcon(light.trend);
+      
+      updateSystemStatus('online', 'All systems operational');
+    }
+
+    function getTrendIcon(trend) {
+      switch(trend) {
+        case 'rising': return '<span style="color: var(--accent-orange);">↗ Rising</span>';
+        case 'falling': return '<span style="color: var(--accent-blue);">↘ Falling</span>';
+        default: return '<span style="color: var(--text-secondary);">→ Stable</span>';
+      }
+    }
+
+    function checkThresholds() {
+      const alerts = [];
+      const temp = systemState.sensors.temperature.current;
+      const humidity = systemState.sensors.humidity.current;
+      const light = systemState.sensors.light.current;
+      
+      if (temp < systemState.thresholds.tempMin || temp > systemState.thresholds.tempMax) {
+        alerts.push(`Temperature ${temp.toFixed(1)}°C is outside optimal range`);
+      }
+      
+      if (humidity > systemState.thresholds.humidity) {
+        alerts.push(`Humidity ${humidity.toFixed(0)}% exceeds threshold`);
+      }
+      
+      if (light < systemState.thresholds.light) {
+        alerts.push(`Light level ${light.toFixed(0)} lx below threshold`);
+      }
+      
+      // Handle automation responses
+      if (alerts.length > 0 && systemState.automation.temperature) {
+        // Temperature automation logic would go here
+        console.log('Auto-adjusting climate control...');
+      }
+    }
+
+    function updateSystemStatus(status, message) {
+      const statusElement = document.getElementById('systemStatus');
+      let statusClass = status;
+      let icon = '';
+      
+      switch(status) {
+        case 'online':
+          icon = '🟢';
+          break;
+        case 'offline':
+          icon = '🔴';
+          break;
+        case 'connecting':
+          icon = '🟡';
+          break;
+        default:
+          icon = '⚪';
+      }
+      
+      statusElement.innerHTML = `
+        <div class="status-chip ${statusClass}">
+          ${status === 'connecting' ? '<div class="loading"></div>' : icon}
+          ${message}
+        </div>
+      `;
+    }
+
+    function updateSystemInfo() {
+      const now = Date.now();
+      const uptime = Math.floor((now - systemState.system.startTime) / 1000);
+      const hours = Math.floor(uptime / 3600);
+      const minutes = Math.floor((uptime % 3600) / 60);
+      const seconds = uptime % 60;
+      
+      document.getElementById('uptime').textContent = `${hours}h ${minutes}m ${seconds}s`;
+      document.getElementById('memory').textContent = '78% (simulated)';
+      document.getElementById('lastUpdate').textContent = 
+        systemState.connection.lastUpdate ? systemState.connection.lastUpdate.toLocaleTimeString() : '--';
+      document.getElementById('dataPoints').textContent = systemState.system.dataPoints.toLocaleString();
+    }
 
     function updateWiFiStatus() {
       fetch('/api/wifi/status')
@@ -539,6 +987,7 @@
           const statusDisplay = document.getElementById('wifiStatusDisplay');
           let statusHTML = '';
           
+          // Access Point Status
           statusHTML += `
             <div class="status-item">
               <span class="status-label">Access Point</span>
@@ -553,7 +1002,9 @@
             </div>
           `;
           
+          // Station Status
           if (data.sta.connected) {
+            const signalBars = getSignalBars(data.sta.rssi);
             statusHTML += `
               <div class="status-item">
                 <span class="status-label">Internet Connection</span>
@@ -568,7 +1019,10 @@
               </div>
               <div class="status-item">
                 <span class="status-label">Signal Strength</span>
-                <span class="status-value">${data.sta.rssi} dBm</span>
+                <span class="status-value">
+                  ${signalBars}
+                  ${data.sta.rssi} dBm
+                </span>
               </div>
             `;
           } else {
@@ -584,35 +1038,52 @@
           }
           
           statusDisplay.innerHTML = statusHTML;
+          systemState.connection.retryCount = 0;
         })
         .catch(error => {
           console.error('Error fetching WiFi status:', error);
+          systemState.connection.retryCount++;
+          
+          if (systemState.connection.retryCount > 3) {
+            updateSystemStatus('offline', 'Connection lost');
+          }
+          
           document.getElementById('wifiStatusDisplay').innerHTML = `
             <div class="status-item">
               <span class="status-label">Status</span>
               <span class="status-value">
                 <div class="status-indicator status-disconnected"></div>
-                Error fetching status
+                Error fetching status (Retry ${systemState.connection.retryCount})
               </span>
             </div>
           `;
         });
     }
 
+    function getSignalBars(rssi) {
+      const strength = Math.max(0, Math.min(4, Math.floor((rssi + 100) / 12.5)));
+      let bars = '<div class="signal-strength">';
+      for (let i = 1; i <= 4; i++) {
+        bars += `<div class="signal-bar ${i <= strength ? 'active' : ''}"></div>`;
+      }
+      bars += '</div>';
+      return bars;
+    }
+
     function connectToWiFi() {
       const ssid = document.getElementById("SSID").value.trim();
       const password = document.getElementById("PW").value.trim();
       const connectBtn = document.getElementById("connectBtn");
-      const messageDiv = document.getElementById("connectionMessage");
       
       if (!ssid) {
-        showMessage("Please enter a WiFi network name (SSID)", "error");
+        showMessage("Please enter a WiFi network name (SSID)", "error", "connectionMessage");
         return;
       }
       
       connectBtn.disabled = true;
       connectBtn.innerHTML = '<div class="loading"></div> Connecting...';
-      showMessage("Connecting to WiFi network...", "info");
+      showMessage("Connecting to WiFi network...", "info", "connectionMessage");
+      updateSystemStatus('connecting', 'Connecting to WiFi...');
       
       const data = { ssid: ssid, password: password };
       
@@ -623,8 +1094,9 @@
       })
       .then(response => response.json())
       .then(result => {
-        showMessage(result.message, "info");
+        showMessage(result.message, "info", "connectionMessage");
         
+        // Check connection status after delay
         setTimeout(() => {
           updateWiFiStatus();
           connectBtn.disabled = false;
@@ -633,9 +1105,10 @@
       })
       .catch(error => {
         console.error('Error connecting to WiFi:', error);
-        showMessage("Error connecting to WiFi: " + error.message, "error");
+        showMessage("Error connecting to WiFi: " + error.message, "error", "connectionMessage");
         connectBtn.disabled = false;
         connectBtn.textContent = "Connect Network";
+        updateSystemStatus('offline', 'Connection failed');
       });
     }
 
@@ -644,35 +1117,171 @@
       
       disconnectBtn.disabled = true;
       disconnectBtn.innerHTML = '<div class="loading"></div> Disconnecting...';
+      updateSystemStatus('connecting', 'Disconnecting...');
       
       fetch('/api/wifi/disconnect', { method: 'POST' })
         .then(response => response.json())
         .then(result => {
-          showMessage(result.message, "info");
+          showMessage(result.message, "info", "connectionMessage");
           updateWiFiStatus();
           disconnectBtn.disabled = false;
           disconnectBtn.textContent = "Disconnect";
         })
         .catch(error => {
           console.error('Error disconnecting from WiFi:', error);
-          showMessage("Error disconnecting from WiFi", "error");
+          showMessage("Error disconnecting from WiFi", "error", "connectionMessage");
           disconnectBtn.disabled = false;
           disconnectBtn.textContent = "Disconnect";
         });
     }
 
-    function showMessage(message, type) {
-      const messageDiv = document.getElementById("connectionMessage");
-      messageDiv.innerHTML = `<div class="message ${type}">${message}</div>`;
+    function toggleAutoTemperature() {
+      systemState.automation.temperature = !systemState.automation.temperature;
+      const toggle = document.getElementById('tempToggle');
+      toggle.classList.toggle('active', systemState.automation.temperature);
+      showMessage(`Auto Temperature Control: ${systemState.automation.temperature ? 'ON' : 'OFF'}`, 'success', 'controlMessage');
+      saveSettings();
+    }
+
+    function toggleAutoHumidity() {
+      systemState.automation.humidity = !systemState.automation.humidity;
+      const toggle = document.getElementById('humidityToggle');
+      toggle.classList.toggle('active', systemState.automation.humidity);
+      showMessage(`Auto Humidity Control: ${systemState.automation.humidity ? 'ON' : 'OFF'}`, 'success', 'controlMessage');
+      saveSettings();
+    }
+
+    function toggleAutoLight() {
+      systemState.automation.light = !systemState.automation.light;
+      const toggle = document.getElementById('lightToggle');
+      toggle.classList.toggle('active', systemState.automation.light);
+      showMessage(`Auto Light Control: ${systemState.automation.light ? 'ON' : 'OFF'}`, 'success', 'controlMessage');
+      saveSettings();
+    }
+
+    function toggleAutoIrrigation() {
+      systemState.automation.irrigation = !systemState.automation.irrigation;
+      const toggle = document.getElementById('irrigationToggle');
+      toggle.classList.toggle('active', systemState.automation.irrigation);
+      showMessage(`Auto Irrigation System: ${systemState.automation.irrigation ? 'ON' : 'OFF'}`, 'success', 'controlMessage');
+      saveSettings();
+    }
+
+    function saveThresholds() {
+      const tempMin = document.getElementById('tempMin').value;
+      const tempMax = document.getElementById('tempMax').value;
+      const humidity = document.getElementById('humidityThreshold').value;
+      const light = document.getElementById('lightThreshold').value;
+      
+      let updated = false;
+      
+      if (tempMin && !isNaN(tempMin)) {
+        systemState.thresholds.tempMin = parseFloat(tempMin);
+        updated = true;
+      }
+      
+      if (tempMax && !isNaN(tempMax)) {
+        systemState.thresholds.tempMax = parseFloat(tempMax);
+        updated = true;
+      }
+      
+      if (humidity && !isNaN(humidity)) {
+        systemState.thresholds.humidity = parseFloat(humidity);
+        updated = true;
+      }
+      
+      if (light && !isNaN(light)) {
+        systemState.thresholds.light = parseFloat(light);
+        updated = true;
+      }
+      
+      if (updated) {
+        showMessage('Thresholds saved successfully!', 'success', 'thresholdMessage');
+        saveSettings();
+        // TODO: Send to ESP32 API
+      } else {
+        showMessage('Please enter at least one threshold value', 'error', 'thresholdMessage');
+      }
+    }
+
+    function saveSettings() {
+      const settings = {
+        automation: systemState.automation,
+        thresholds: systemState.thresholds
+      };
+      
+      // Store in memory (would be localStorage in a real environment)
+      window.greenhouseSettings = settings;
+    }
+
+    function loadStoredSettings() {
+      const stored = window.greenhouseSettings;
+      if (stored) {
+        systemState.automation = { ...systemState.automation, ...stored.automation };
+        systemState.thresholds = { ...systemState.thresholds, ...stored.thresholds };
+        
+        // Update UI toggles
+        Object.keys(systemState.automation).forEach(key => {
+          const toggle = document.getElementById(key + 'Toggle');
+          if (toggle) {
+            toggle.classList.toggle('active', systemState.automation[key]);
+          }
+        });
+        
+        // Update threshold inputs
+        Object.keys(systemState.thresholds).forEach(key => {
+          const input = document.getElementById(key === 'tempMin' ? 'tempMin' : 
+                                                 key === 'tempMax' ? 'tempMax' :
+                                                 key === 'humidity' ? 'humidityThreshold' : 
+                                                 key === 'light' ? 'lightThreshold' : null);
+          if (input) {
+            input.value = systemState.thresholds[key];
+          }
+        });
+      }
+    }
+
+    function showMessage(message, type, containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      
+      container.innerHTML = `<div class="message ${type}">${message}</div>`;
       
       setTimeout(() => {
-        messageDiv.innerHTML = "";
+        container.innerHTML = "";
       }, 5000);
     }
-    
-    // --- Initial Setup ---
-    updateWiFiStatus();
-    setInterval(updateWiFiStatus, 5000);
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+      if (e.ctrlKey && e.key === 'r') {
+        e.preventDefault();
+        location.reload();
+      }
+      
+      if (e.key === 'Escape') {
+        // Clear all messages
+        ['connectionMessage', 'thresholdMessage', 'controlMessage'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.innerHTML = '';
+        });
+      }
+    });
+
+    // Enhanced error handling
+    window.addEventListener('error', function(e) {
+      console.error('Global error:', e.error);
+      updateSystemStatus('offline', 'System error detected');
+    });
+
+    // Visibility change handling
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') {
+        // Resume updates when tab becomes visible
+        updateWiFiStatus();
+        updateSensors();
+      }
+    });
   </script>
 </body>
 </html>
