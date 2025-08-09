@@ -3,13 +3,14 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include "index_html.h" //converted index.html into a ready-to-use C header file
 
-//============================STA mode credentials (your home router)=======================
+//============================STA mode credentials (your home router)=============================
 const char* ssid_sta = "DEFAULT SSID";             // replace with your Wi-Fi SSID
 const char* password_sta = "DEFAULT PASSWORD";     // replace with your Wi-Fi password
 // Note: If you want to use the default credentials, leave them as is.
 
-//===========================AP mode credentials (ESP32's own Wi-Fi)=========================
+//===========================AP mode credentials (ESP32's own Wi-Fi)==============================
 const char* ssid_ap = "ESP32-AccessPoint";         // name of the ESP32's access point
 const char* password_ap = "12345678";              // must be at least 8 characters
 AsyncWebServer server(80);
@@ -41,15 +42,22 @@ void setup() {
   } else {
     Serial.println("Failed to start ESP32 AP.");
   }
-  //==========================================================================================
+  //=============================================================================================
 
-  // ===================================Serve dashboard========================================
+  // ===================================Serve dashboard==========================================
+  // Fixed: Use AsyncWebServer syntax instead of regular WebServer
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send_P(200, "text/html", (const char*)index_html);
+  });
+
+  // Alternative if you want to serve from SPIFFS:
+  /*
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index.html", "text/html");
   });
-  
-  // ===========================API endpoint for WiFi connection================================
+  */
 
+  // ===========================API endpoint for WiFi connection=================================
   server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       
@@ -142,11 +150,35 @@ void setup() {
     request->send(200, "application/json", response);
   });
 
+  // ===========================API endpoint to scan for available WiFi networks=======================
+  server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("WiFi scan requested");
+    
+    int networksFound = WiFi.scanNetworks();
+    DynamicJsonDocument doc(2048);
+    JsonArray networks = doc.createNestedArray("networks");
+    
+    for (int i = 0; i < networksFound; i++) {
+      JsonObject network = networks.createNestedObject();
+      network["ssid"] = WiFi.SSID(i);
+      network["rssi"] = WiFi.RSSI(i);
+      network["encryption"] = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "Open" : "Encrypted";
+    }
+    
+    WiFi.scanDelete(); // Clean up scan results
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // Serve static files from SPIFFS
   server.serveStatic("/", SPIFFS, "/");
+  
+  // Start the server
   server.begin();
   Serial.println("HTTP server started.");
-  Serial.println("Your ip address is: ");
-  Serial.println(WiFi.localIP());
+  
   // =========================================================================================
 
   //======================================== Start Station (STA) mode===========================
@@ -154,7 +186,7 @@ void setup() {
   Serial.println("Connecting to WiFi (STA Mode)...");
 
   int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 10) {
+  while (WiFi.status() != WL_CONNECTED && retry < 20) { // Increased retry count
     delay(500);
     Serial.print(".");
     retry++;
@@ -167,6 +199,16 @@ void setup() {
   } else {
     Serial.println("\nFailed to connect to STA WiFi");
   }
+  
+  // Print both IP addresses for easy access
+  Serial.println("=== Network Information ===");
+  Serial.print("AP IP Address: ");
+  Serial.println(WiFi.softAPIP());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("STA IP Address: ");
+    Serial.println(WiFi.localIP());
+  }
+  Serial.println("===========================");
   //=================================================================================================
 }
 
@@ -183,17 +225,16 @@ void loop() {
     // Disconnect from current WiFi
     Serial.println("Disconnecting from current WiFi...");
     WiFi.disconnect();
-    delay(2000);
+    delay(1000); // Reduced delay
     
     // Try to connect to new WiFi
     Serial.println("Starting connection attempt...");
     WiFi.begin(new_ssid.c_str(), new_password.c_str());
     
     int retry = 0;
-    while (WiFi.status() != WL_CONNECTED && retry < 30) {  // Increased timeout
+    while (WiFi.status() != WL_CONNECTED && retry < 30) {  // 15 second timeout
       delay(500);
       Serial.print(".");
-      Serial.print(WiFi.status());  // Print status code
       retry++;
       
       if (retry % 10 == 0) {  // Print status every 5 seconds
@@ -215,21 +256,26 @@ void loop() {
       Serial.println("0=WL_IDLE_STATUS, 1=WL_NO_SSID_AVAIL, 2=WL_SCAN_COMPLETED");
       Serial.println("3=WL_CONNECTED, 4=WL_CONNECT_FAILED, 5=WL_CONNECTION_LOST, 6=WL_DISCONNECTED");
       
-      Serial.println("Attempting to reconnect to original WiFi...");
-      WiFi.begin(ssid_sta, password_sta);
-      
-      int original_retry = 0;
-      while (WiFi.status() != WL_CONNECTED && original_retry < 20) {
-        delay(500);
-        Serial.print("o");
-        original_retry++;
-      }
-      Serial.println();
-      
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("Reconnected to original WiFi: " + String(ssid_sta));
-      } else {
-        Serial.println("Failed to reconnect to original WiFi!");
+      // Only attempt to reconnect to original WiFi if it's not the default placeholder
+      if (String(ssid_sta) != "DEFAULT SSID") {
+        Serial.println("Attempting to reconnect to original WiFi...");
+        WiFi.begin(ssid_sta, password_sta);
+        
+        int original_retry = 0;
+        while (WiFi.status() != WL_CONNECTED && original_retry < 20) {
+          delay(500);
+          Serial.print("o");
+          original_retry++;
+        }
+        Serial.println();
+        
+        if (WiFi.status() == WL_CONNECTED) {
+          Serial.println("Reconnected to original WiFi: " + String(ssid_sta));
+          Serial.print("IP Address: ");
+          Serial.println(WiFi.localIP());
+        } else {
+          Serial.println("Failed to reconnect to original WiFi!");
+        }
       }
     }
     Serial.println("=== WiFi Connection Process Complete ===");
