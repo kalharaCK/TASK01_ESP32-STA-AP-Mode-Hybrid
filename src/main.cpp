@@ -3,6 +3,7 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include <DNSServer.h>
 #include "index_html.h" //converted index.html into a ready-to-use C header file
 
 //============================STA mode credentials (your home router)=============================
@@ -13,12 +14,23 @@ const char* password_sta = "DEFAULT PASSWORD";     // replace with your Wi-Fi pa
 //===========================AP mode credentials (ESP32's own Wi-Fi)==============================
 const char* ssid_ap = "ESP32-AccessPoint";         // name of the ESP32's access point
 const char* password_ap = "12345678";              // must be at least 8 characters
+
 AsyncWebServer server(80);
+DNSServer dnsServer;
 
 // =====================Variables to store new WiFi credentials===================================
 String new_ssid = "";
 String new_password = "";
 bool wifi_connect_requested = false;
+
+// Captive portal function - redirects all requests to our main page
+bool isCaptivePortal(AsyncWebServerRequest *request) {
+  if (!request->hasHeader("Host")) {
+    return true;
+  }
+  String hostHeader = request->getHeader("Host")->value();
+  return !hostHeader.equals(WiFi.softAPIP().toString());
+}
 
 void setup() {
   Serial.begin(115200);
@@ -42,12 +54,67 @@ void setup() {
   } else {
     Serial.println("Failed to start ESP32 AP.");
   }
+
+  // Start DNS Server for captive portal
+  if (dnsServer.start(53, "*", WiFi.softAPIP())) {
+    Serial.println("DNS Server started for captive portal");
+  } else {
+    Serial.println("Failed to start DNS Server");
+  }
   //=============================================================================================
 
-  // ===================================Serve dashboard==========================================
-  // Fixed: Use AsyncWebServer syntax instead of regular WebServer
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+  // ===================================Captive Portal Setup===================================
+  // Handle captive portal detection requests
+  server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request){
+    String redirectURL = "http://" + WiFi.softAPIP().toString();
+    request->redirect(redirectURL);
+  });
+  
+  server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request){
+    String redirectURL = "http://" + WiFi.softAPIP().toString();
+    request->redirect(redirectURL);
+  });
+  
+  server.on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest *request){
+    String redirectURL = "http://" + WiFi.softAPIP().toString();
+    request->redirect(redirectURL);
+  });
+  
+  server.on("/redirect", HTTP_GET, [](AsyncWebServerRequest *request){
+    String redirectURL = "http://" + WiFi.softAPIP().toString();
+    request->redirect(redirectURL);
+  });
+
+  // Additional captive portal detection endpoints
+  server.on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest *request){
+    String redirectURL = "http://" + WiFi.softAPIP().toString();
+    request->redirect(redirectURL);
+  });
+  
+  server.on("/success.txt", HTTP_GET, [](AsyncWebServerRequest *request){
+    String redirectURL = "http://" + WiFi.softAPIP().toString();
+    request->redirect(redirectURL);
+  });
+
+  // Catch-all handler for captive portal
+  server.onNotFound([](AsyncWebServerRequest *request){
+    Serial.println("Request for: " + request->url());
+    if (isCaptivePortal(request)) {
+      Serial.println("Captive portal redirect: " + request->url());
+      String redirectURL = "http://" + WiFi.softAPIP().toString();
+      request->redirect(redirectURL);
+    } else {
+      // Serve the main page instead of 404 for direct IP access
+      Serial.println("Serving main page for: " + request->url());
       request->send_P(200, "text/html", (const char*)index_html);
+    }
+  });
+  //=========================================================================================
+
+  // ===================================Serve dashboard==========================================
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("Serving main dashboard page");
+    request->send_P(200, "text/html", (const char*)index_html);
   });
 
   // Alternative if you want to serve from SPIFFS:
@@ -209,10 +276,14 @@ void setup() {
     Serial.println(WiFi.localIP());
   }
   Serial.println("===========================");
+  Serial.println("Captive Portal Active - Users will be automatically redirected to configuration page");
   //=================================================================================================
 }
 
 void loop() {
+  // Process DNS requests for captive portal
+  dnsServer.processNextRequest();
+  
   // ===================================Handle WiFi connection requests==============================
   if (wifi_connect_requested) {
     Serial.println("=== Processing WiFi Connection Request ===");
@@ -236,6 +307,9 @@ void loop() {
       delay(500);
       Serial.print(".");
       retry++;
+      
+      // Continue processing DNS requests during connection attempt
+      dnsServer.processNextRequest();
       
       if (retry % 10 == 0) {  // Print status every 5 seconds
         Serial.println();
@@ -266,6 +340,9 @@ void loop() {
           delay(500);
           Serial.print("o");
           original_retry++;
+          
+          // Continue processing DNS requests during reconnection attempt
+          dnsServer.processNextRequest();
         }
         Serial.println();
         
