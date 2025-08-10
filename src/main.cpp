@@ -6,19 +6,19 @@
 #include <DNSServer.h>
 #include "index_html.h" //converted index.html into a ready-to-use C header file
 
-//============================STA mode credentials (your home router)=============================
+//============================STA mode credentials (your home router)==============================================
 const char* ssid_sta = "DEFAULT SSID";             // replace with your Wi-Fi SSID
 const char* password_sta = "DEFAULT PASSWORD";     // replace with your Wi-Fi password
 // Note: If you want to use the default credentials, leave them as is.
 
-//===========================AP mode credentials (ESP32's own Wi-Fi)==============================
+//===========================AP mode credentials (ESP32's own Wi-Fi)===============================================
 const char* ssid_ap = "ESP32-AccessPoint";         // name of the ESP32's access point
 const char* password_ap = "12345678";              // must be at least 8 characters
 
 AsyncWebServer server(80);
 DNSServer dnsServer;
 
-// =====================Variables to store new WiFi credentials===================================
+// =====================Variables to store new WiFi credentials====================================================
 String new_ssid = "";
 String new_password = "";
 bool wifi_connect_requested = false;
@@ -45,7 +45,7 @@ void setup() {
   // Hybrid Mode
   WiFi.mode(WIFI_AP_STA);
   
-  //===================================Start Access Point (AP) mode=============================
+  //===================================Start Access Point (AP) mode===============================================
   bool apResult = WiFi.softAP(ssid_ap, password_ap);
   if (apResult) {
     Serial.println("ESP32 AP started.");
@@ -61,9 +61,9 @@ void setup() {
   } else {
     Serial.println("Failed to start DNS Server");
   }
-  //=============================================================================================
+  //==============================================================================================================
 
-  // ===================================Captive Portal Setup===================================
+  // ===================================Captive Portal Setup======================================================
   // Handle captive portal detection requests
   server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request){
     String redirectURL = "http://" + WiFi.softAPIP().toString();
@@ -109,9 +109,9 @@ void setup() {
       request->send_P(200, "text/html", (const char*)index_html);
     }
   });
-  //=========================================================================================
+  //==============================================================================================================
 
-  // ===================================Serve dashboard==========================================
+  // ===================================Serve dashboard===========================================================
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     Serial.println("Serving main dashboard page");
     request->send_P(200, "text/html", (const char*)index_html);
@@ -124,7 +124,7 @@ void setup() {
   });
   */
 
-  // ===========================API endpoint for WiFi connection=================================
+  // ===========================API endpoint for WiFi connection==================================================
   server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       
@@ -158,7 +158,7 @@ void setup() {
         return;
       }
       
-      //===============================Store credentials for connection attempt==============================
+      //===============================Store credentials for connection attempt===================================
       new_ssid = ssid;
       new_password = password;
       wifi_connect_requested = true;
@@ -176,7 +176,7 @@ void setup() {
       Serial.println("Response sent to client");
     });
   
-  // ==========================================API endpoint to get WiFi status=============================
+  // ==========================================API endpoint to get WiFi status====================================
   server.on("/api/wifi/status", HTTP_GET, [](AsyncWebServerRequest *request){
     DynamicJsonDocument doc(512);
     
@@ -203,7 +203,7 @@ void setup() {
     request->send(200, "application/json", response);
   });
   
-  // =========================================API endpoint to disconnect from WiFi==========================
+  // =========================================API endpoint to disconnect from WiFi================================
   server.on("/api/wifi/disconnect", HTTP_POST, [](AsyncWebServerRequest *request){
     WiFi.disconnect();
     Serial.println("WiFi disconnected by user");
@@ -217,7 +217,7 @@ void setup() {
     request->send(200, "application/json", response);
   });
 
-  // ===========================API endpoint to scan for available WiFi networks=======================
+  // ===========================API endpoint to scan for available WiFi networks===================================
   server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request){
     Serial.println("WiFi scan requested");
     
@@ -246,9 +246,9 @@ void setup() {
   server.begin();
   Serial.println("HTTP server started.");
   
-  // =========================================================================================
+  // =============================================================================================================
 
-  //======================================== Start Station (STA) mode===========================
+  //======================================== Start Station (STA) mode=============================================
   WiFi.begin(ssid_sta, password_sta);
   Serial.println("Connecting to WiFi (STA Mode)...");
 
@@ -277,14 +277,14 @@ void setup() {
   }
   Serial.println("===========================");
   Serial.println("Captive Portal Active - Users will be automatically redirected to configuration page");
-  //=================================================================================================
+  //==============================================================================================================
 }
 
 void loop() {
   // Process DNS requests for captive portal
   dnsServer.processNextRequest();
   
-  // ===================================Handle WiFi connection requests==============================
+  // ===================================Handle WiFi connection requests===========================================
   if (wifi_connect_requested) {
     Serial.println("=== Processing WiFi Connection Request ===");
     wifi_connect_requested = false;
@@ -308,7 +308,8 @@ void loop() {
       Serial.print(".");
       retry++;
       
-      // Continue processing DNS requests during connection attempt
+      // ==============================Continue processing DNS requests during connection attempt=========================
+      // This allows the captive portal to remain responsive
       dnsServer.processNextRequest();
       
       if (retry % 10 == 0) {  // Print status every 5 seconds
