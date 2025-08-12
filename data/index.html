@@ -349,6 +349,61 @@
       opacity: 0.7;
     }
 
+    /* Custom Select/Dropdown */
+    .form-select {
+      width: 100%;
+      padding: 1rem;
+      background: var(--secondary-bg);
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 1rem;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      appearance: none;
+      background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23b4bcd0" d="M2 5L0 3h4zm0-5L0 2h4z"/></svg>');
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+      background-size: 12px;
+    }
+
+    .form-select:focus {
+      outline: none;
+      border-color: var(--accent-green);
+      box-shadow: 0 0 0 3px rgba(0, 255, 136, 0.1);
+    }
+
+    .form-select option {
+      background: var(--secondary-bg);
+      color: var(--text-primary);
+      padding: 0.5rem;
+    }
+
+    .refresh-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--secondary-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-bottom: 0.5rem;
+    }
+
+    .refresh-button:hover {
+      border-color: var(--accent-green);
+      color: var(--accent-green);
+    }
+
+    .refresh-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
     /* Buttons */
     .btn {
       padding: 1rem 2rem;
@@ -540,6 +595,28 @@
       font-weight: 600;
     }
 
+    /* Connection quality indicators */
+    .signal-strength {
+      display: flex;
+      gap: 2px;
+      align-items: flex-end;
+    }
+
+    .signal-bar {
+      width: 4px;
+      height: 8px;
+      background: var(--border-color);
+      border-radius: 1px;
+    }
+
+    .signal-bar.active {
+      background: var(--accent-green);
+    }
+
+    .signal-bar:nth-child(2) { height: 12px; }
+    .signal-bar:nth-child(3) { height: 16px; }
+    .signal-bar:nth-child(4) { height: 20px; }
+
     /* Responsive Design */
     @media (max-width: 768px) {
       .container {
@@ -584,28 +661,6 @@
         grid-column: span 1;
       }
     }
-
-    /* Connection quality indicators */
-    .signal-strength {
-      display: flex;
-      gap: 2px;
-      align-items: flex-end;
-    }
-
-    .signal-bar {
-      width: 4px;
-      height: 8px;
-      background: var(--border-color);
-      border-radius: 1px;
-    }
-
-    .signal-bar.active {
-      background: var(--accent-green);
-    }
-
-    .signal-bar:nth-child(2) { height: 12px; }
-    .signal-bar:nth-child(3) { height: 16px; }
-    .signal-bar:nth-child(4) { height: 20px; }
   </style>
 </head>
 <body>
@@ -627,7 +682,7 @@
       <!-- Environmental Sensors Card -->
       <div class="card temperature-card">
         <h2 class="card-title">
-          
+          <div class="card-icon">🌡️</div>
           Environmental Sensors
         </h2>
         <div class="temperature-grid">
@@ -670,7 +725,7 @@
       <!-- WiFi Status Card -->
       <div class="card">
         <h2 class="card-title">
-          
+          <div class="card-icon">📶</div>
           Network Status
         </h2>
         <div class="status-display" id="wifiStatusDisplay">
@@ -684,16 +739,21 @@
       <!-- WiFi Configuration Card -->
       <div class="card">
         <h2 class="card-title">
-          
+          <div class="card-icon">⚙️</div>
           WiFi Configuration
         </h2>
         <div class="form-group">
-          <label class="form-label" for="SSID">Network Name (SSID)</label>
-          <input type="text" id="SSID" class="form-input" placeholder="Enter WiFi network name" />
+          <label class="form-label" for="wifiNetworkSelect">Select WiFi Network</label>
+          <button class="refresh-button" onclick="scanWiFiNetworks()" id="scanBtn">
+            🔄 Scan Networks
+          </button>
+          <select id="wifiNetworkSelect" class="form-select">
+            <option value="">Click "Scan Networks" to find available networks...</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label" for="PW">Password</label>
-          <input type="password" id="PW" class="form-input" placeholder="Enter WiFi password" />
+          <input type="password" id="PW" class="form-input" placeholder="Enter WiFi password (leave empty for open networks)" />
         </div>
         <div class="btn-group">
           <button class="btn btn-primary" onclick="connectToWiFi()" id="connectBtn">
@@ -709,7 +769,7 @@
       <!-- Automation Settings Card -->
       <div class="card">
         <h2 class="card-title">
-          
+          <div class="card-icon">📊</div>
           Automation Thresholds
         </h2>
         <div class="form-group">
@@ -735,7 +795,7 @@
       <!-- Control Panel Card -->
       <div class="card">
         <h2 class="card-title">
-          
+          <div class="card-icon">🎛️</div>
           Automation Control
         </h2>
         <div class="toggle-group">
@@ -789,8 +849,8 @@
             <span class="data-value" id="lastUpdate">--</span>
           </div>
           <div class="data-row">
-            <span class="data-label">Data Points Logged</span>
-            <span class="data-value" id="dataPoints">--</span>
+            <span class="data-label">Available Networks</span>
+            <span class="data-value" id="networkCount">--</span>
           </div>
         </div>
       </div>
@@ -826,11 +886,51 @@
         uptime: 0,
         dataPoints: 0,
         startTime: Date.now()
-      }
+      },
+      availableNetworks: [],
+      scanInProgress: false
     };
+
+    // Enhanced error recovery - auto-retry failed scans
+    let scanRetryCount = 0;
+    const maxScanRetries = 3;
+    const scanRetryDelay = 5000; // 5 seconds between retries
+
+    function autoRetryScan() {
+      if (scanRetryCount < maxScanRetries && systemState.availableNetworks.length === 0 && !systemState.scanInProgress) {
+        scanRetryCount++;
+        console.log(`Auto-retrying scan (attempt ${scanRetryCount}/${maxScanRetries})`);
+        
+        showMessage(`Retrying network scan (${scanRetryCount}/${maxScanRetries})...`, "warning", "connectionMessage");
+        
+        setTimeout(() => {
+          if (!systemState.scanInProgress) {
+            scanWiFiNetworks();
+          }
+        }, scanRetryDelay);
+      } else if (scanRetryCount >= maxScanRetries) {
+        console.log('Max scan retries reached. Stopping auto-retry.');
+        showMessage("Unable to scan networks after multiple attempts. Please try manual scan.", "error", "connectionMessage");
+        
+        // Reset retry count after a longer delay for future attempts
+        setTimeout(() => {
+          scanRetryCount = 0;
+          console.log('Scan retry count reset. Auto-retry available again.');
+        }, 30000); // Reset after 30 seconds
+      }
+    }
+
+    // Reset scan retry count on successful scan
+    function resetScanRetryCount() {
+      if (scanRetryCount > 0) {
+        console.log(`Scan successful! Reset retry count from ${scanRetryCount} to 0`);
+        scanRetryCount = 0;
+      }
+    }
 
     // Initialize dashboard
     document.addEventListener('DOMContentLoaded', function() {
+      console.log('Dashboard initializing...');
       updateSystemStatus('connecting', 'Initializing system...');
       startSensorSimulation();
       loadStoredSettings();
@@ -843,7 +943,336 @@
       // Initial updates
       updateWiFiStatus();
       updateSystemInfo();
+      
+      // Auto-scan on startup with enhanced retry logic
+      setTimeout(() => {
+        scanWiFiNetworks();
+        // Set up auto-retry if no networks found
+        setTimeout(() => {
+          autoRetryScan();
+        }, 10000); // Check after 10 seconds if retry is needed
+      }, 3000);
     });
+
+    // Enhanced scan function with better error handling
+    function scanWiFiNetworks() {
+      const scanBtn = document.getElementById('scanBtn');
+      const select = document.getElementById('wifiNetworkSelect');
+      
+      if (systemState.scanInProgress) {
+        console.log('Scan already in progress');
+        return;
+      }
+      
+      systemState.scanInProgress = true;
+      scanBtn.disabled = true;
+      scanBtn.innerHTML = '<div class="loading"></div> Starting Scan...';
+      
+      // Clear the dropdown and show scanning message
+      select.innerHTML = '<option value="">Starting network scan...</option>';
+      showMessage("Starting WiFi network scan...", "info", "connectionMessage");
+      
+      console.log('Starting async network scan...');
+      
+      // Step 1: Start the scan with enhanced error handling
+      fetch('/api/wifi/scan')
+        .then(response => {
+          console.log('Scan start response status:', response.status);
+          if (response.status === 202) {
+            // Scan started successfully, now poll for results
+            scanBtn.innerHTML = '<div class="loading"></div> Scanning...';
+            select.innerHTML = '<option value="">Scanning for networks...</option>';
+            showMessage("Scanning in progress, please wait...", "info", "connectionMessage");
+            
+            // Start polling for results
+            pollScanResults();
+          } else if (response.status === 429) {
+            throw new Error('Please wait before scanning again');
+          } else if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          } else {
+            // Immediate response with results (cached)
+            return response.json();
+          }
+        })
+        .then(data => {
+          if (data) {
+            // Handle immediate results (cached data)
+            processScanResults(data);
+          }
+        })
+        .catch(error => {
+          console.error('Error starting WiFi scan:', error);
+          handleScanError(error.message);
+        });
+    }
+
+    function handleScanError(errorMessage) {
+      systemState.scanInProgress = false;
+      const scanBtn = document.getElementById('scanBtn');
+      const select = document.getElementById('wifiNetworkSelect');
+      
+      scanBtn.disabled = false;
+      scanBtn.innerHTML = '🔄 Scan Networks';
+      
+      select.innerHTML = '<option value="">Error starting scan - Click to retry...</option>';
+      showMessage("Scan error: " + errorMessage, "error", "connectionMessage");
+      
+      // Trigger auto-retry after a delay if this was not a manual scan
+      setTimeout(() => {
+        autoRetryScan();
+      }, 3000);
+    }
+
+    function pollScanResults() {
+      const maxAttempts = 25; // Increased from 20 to 25 attempts (25 seconds)
+      let attempts = 0;
+      
+      const checkResults = () => {
+        attempts++;
+        console.log(`Checking scan results, attempt ${attempts}/${maxAttempts}`);
+        
+        fetch('/api/wifi/scan/results')
+          .then(response => {
+            if (response.status === 202) {
+              // Still scanning
+              if (attempts < maxAttempts) {
+                setTimeout(checkResults, 1000); // Check again in 1 second
+              } else {
+                throw new Error('Scan timeout - taking too long (watchdog protection)');
+              }
+            } else if (response.ok) {
+              return response.json();
+            } else {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+          })
+          .then(data => {
+            if (data) {
+              processScanResults(data);
+            }
+          })
+          .catch(error => {
+            console.error('Error getting scan results:', error);
+            handleScanError(error.message);
+          });
+      };
+      
+      // Start checking for results after 2 seconds
+      setTimeout(checkResults, 2000);
+    }
+    
+    // Process the scan results with enhanced error recovery
+    function processScanResults(data) {
+      const scanBtn = document.getElementById('scanBtn');
+      const select = document.getElementById('wifiNetworkSelect');
+      
+      systemState.scanInProgress = false;
+      scanBtn.disabled = false;
+      scanBtn.innerHTML = '🔄 Scan Networks';
+      
+      console.log('Processing scan results:', data);
+      
+      if (data.status === 'success' && data.networks && Array.isArray(data.networks)) {
+        systemState.availableNetworks = data.networks;
+        updateNetworkDropdown();
+        
+        const networkCount = data.networks.length;
+        document.getElementById('networkCount').textContent = networkCount;
+        showMessage(`Found ${networkCount} network(s)`, "success", "connectionMessage");
+        console.log(`Successfully found ${networkCount} networks`);
+        
+        // Reset retry count on successful scan
+        resetScanRetryCount();
+        
+      } else if (data.status === 'success' && data.count === 0) {
+        console.log('No networks found');
+        systemState.availableNetworks = [];
+        updateNetworkDropdown();
+        showMessage("No networks found in range", "warning", "connectionMessage");
+        
+        // Trigger auto-retry for empty results
+        setTimeout(() => {
+          autoRetryScan();
+        }, 3000);
+        
+      } else if (data.status === 'error') {
+        console.log('Scan failed with error:', data);
+        systemState.availableNetworks = [];
+        updateNetworkDropdown();
+        const errorMsg = data.message || "Scan failed - possible watchdog timeout";
+        showMessage(errorMsg, "error", "connectionMessage");
+        
+        // Trigger auto-retry on error
+        setTimeout(() => {
+          autoRetryScan();
+        }, 3000);
+        
+      } else {
+        console.log('Invalid scan response:', data);
+        systemState.availableNetworks = [];
+        updateNetworkDropdown();
+        showMessage("Invalid scan response received", "error", "connectionMessage");
+        
+        // Trigger auto-retry on invalid response
+        setTimeout(() => {
+          autoRetryScan();
+        }, 3000);
+      }
+    }
+
+    function updateNetworkDropdown() {
+      const select = document.getElementById('wifiNetworkSelect');
+      
+      console.log('Updating network dropdown with', systemState.availableNetworks.length, 'networks');
+      
+      // Clear existing options
+      select.innerHTML = '';
+      
+      // Add default option
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'Select a network...';
+      select.appendChild(defaultOption);
+      
+      if (systemState.availableNetworks.length === 0) {
+        const noNetworkOption = document.createElement('option');
+        noNetworkOption.value = '';
+        noNetworkOption.textContent = 'No networks found - Click scan to refresh';
+        noNetworkOption.disabled = true;
+        select.appendChild(noNetworkOption);
+        return;
+      }
+      
+      // Sort networks by signal strength (RSSI - higher is better)
+      const sortedNetworks = [...systemState.availableNetworks].sort((a, b) => b.rssi - a.rssi);
+      
+      sortedNetworks.forEach((network, index) => {
+        if (network.ssid && network.ssid.trim() !== '') {
+          const option = document.createElement('option');
+          option.value = network.ssid;
+          
+          // Add signal strength and security info to display
+          const signalStrength = getSignalStrengthText(network.rssi);
+          const securityIcon = network.encryption === 'Open' ? '🔓' : '🔒';
+          
+          option.textContent = `${network.ssid} ${securityIcon} (${signalStrength})`;
+          option.dataset.rssi = network.rssi;
+          option.dataset.encryption = network.encryption;
+          option.dataset.encrypted = network.encrypted;
+          
+          select.appendChild(option);
+          
+          console.log(`Added network ${index + 1}: ${network.ssid} (${signalStrength}, ${network.encryption})`);
+        }
+      });
+      
+      console.log(`Dropdown updated with ${select.options.length - 1} networks`);
+    }
+
+    function getSignalStrengthText(rssi) {
+      if (rssi >= -50) return 'Excellent';
+      if (rssi >= -60) return 'Very Good';
+      if (rssi >= -70) return 'Good';
+      if (rssi >= -80) return 'Fair';
+      return 'Weak';
+    }
+
+    function connectToWiFi() {
+      const selectedNetwork = document.getElementById("wifiNetworkSelect").value.trim();
+      const password = document.getElementById("PW").value.trim();
+      const connectBtn = document.getElementById("connectBtn");
+      
+      if (!selectedNetwork) {
+        showMessage("Please select a WiFi network from the dropdown", "error", "connectionMessage");
+        return;
+      }
+      
+      console.log('Attempting to connect to:', selectedNetwork);
+      
+      // Check if it's an open network
+      const selectedOption = document.getElementById("wifiNetworkSelect").selectedOptions[0];
+      const isOpenNetwork = selectedOption && selectedOption.dataset.encrypted === 'false';
+      
+      console.log('Network is open:', isOpenNetwork);
+      
+      if (!isOpenNetwork && !password) {
+        showMessage("Please enter the WiFi password", "error", "connectionMessage");
+        return;
+      }
+      
+      connectBtn.disabled = true;
+      connectBtn.innerHTML = '<div class="loading"></div> Connecting...';
+      showMessage(`Connecting to ${selectedNetwork}...`, "info", "connectionMessage");
+      updateSystemStatus('connecting', `Connecting to ${selectedNetwork}...`);
+      
+      const data = { 
+        ssid: selectedNetwork, 
+        password: isOpenNetwork ? "" : password 
+      };
+      
+      console.log('Sending connection request:', { ssid: selectedNetwork, password: isOpenNetwork ? "[OPEN]" : "[HIDDEN]" });
+      
+      fetch('/api/wifi/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      .then(response => {
+        console.log('Connection response status:', response.status);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(result => {
+        console.log('Connection result:', result);
+        showMessage(result.message, "info", "connectionMessage");
+        
+        // Check connection status after delay
+        setTimeout(() => {
+          updateWiFiStatus();
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect Network";
+        }, 15000);
+      })
+      .catch(error => {
+        console.error('Error connecting to WiFi:', error);
+        showMessage("Error connecting to WiFi: " + error.message, "error", "connectionMessage");
+        connectBtn.disabled = false;
+        connectBtn.textContent = "Connect Network";
+        updateSystemStatus('offline', 'Connection failed');
+      });
+    }
+
+    function disconnectWiFi() {
+      const disconnectBtn = document.getElementById("disconnectBtn");
+      
+      disconnectBtn.disabled = true;
+      disconnectBtn.innerHTML = '<div class="loading"></div> Disconnecting...';
+      updateSystemStatus('connecting', 'Disconnecting...');
+      
+      fetch('/api/wifi/disconnect', { method: 'POST' })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(result => {
+          console.log('Disconnect result:', result);
+          showMessage(result.message, "info", "connectionMessage");
+          updateWiFiStatus();
+          disconnectBtn.disabled = false;
+          disconnectBtn.textContent = "Disconnect";
+        })
+        .catch(error => {
+          console.error('Error disconnecting from WiFi:', error);
+          showMessage("Error disconnecting from WiFi: " + error.message, "error", "connectionMessage");
+          disconnectBtn.disabled = false;
+          disconnectBtn.textContent = "Disconnect";
+        });
+    }
 
     function startSensorSimulation() {
       // Initialize with reasonable values
@@ -934,7 +1363,6 @@
       
       // Handle automation responses
       if (alerts.length > 0 && systemState.automation.temperature) {
-        // Temperature automation logic would go here
         console.log('Auto-adjusting climate control...');
       }
     }
@@ -977,13 +1405,23 @@
       document.getElementById('memory').textContent = '78% (simulated)';
       document.getElementById('lastUpdate').textContent = 
         systemState.connection.lastUpdate ? systemState.connection.lastUpdate.toLocaleTimeString() : '--';
-      document.getElementById('dataPoints').textContent = systemState.system.dataPoints.toLocaleString();
+      
+      // Update network count if not already set
+      if (document.getElementById('networkCount').textContent === '--') {
+        document.getElementById('networkCount').textContent = systemState.availableNetworks.length;
+      }
     }
 
     function updateWiFiStatus() {
       fetch('/api/wifi/status')
-        .then(response => response.json())
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
         .then(data => {
+          console.log('WiFi status:', data);
           const statusDisplay = document.getElementById('wifiStatusDisplay');
           let statusHTML = '';
           
@@ -1070,71 +1508,6 @@
       return bars;
     }
 
-    function connectToWiFi() {
-      const ssid = document.getElementById("SSID").value.trim();
-      const password = document.getElementById("PW").value.trim();
-      const connectBtn = document.getElementById("connectBtn");
-      
-      if (!ssid) {
-        showMessage("Please enter a WiFi network name (SSID)", "error", "connectionMessage");
-        return;
-      }
-      
-      connectBtn.disabled = true;
-      connectBtn.innerHTML = '<div class="loading"></div> Connecting...';
-      showMessage("Connecting to WiFi network...", "info", "connectionMessage");
-      updateSystemStatus('connecting', 'Connecting to WiFi...');
-      
-      const data = { ssid: ssid, password: password };
-      
-      fetch('/api/wifi/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
-      .then(response => response.json())
-      .then(result => {
-        showMessage(result.message, "info", "connectionMessage");
-        
-        // Check connection status after delay
-        setTimeout(() => {
-          updateWiFiStatus();
-          connectBtn.disabled = false;
-          connectBtn.textContent = "Connect Network";
-        }, 15000);
-      })
-      .catch(error => {
-        console.error('Error connecting to WiFi:', error);
-        showMessage("Error connecting to WiFi: " + error.message, "error", "connectionMessage");
-        connectBtn.disabled = false;
-        connectBtn.textContent = "Connect Network";
-        updateSystemStatus('offline', 'Connection failed');
-      });
-    }
-
-    function disconnectWiFi() {
-      const disconnectBtn = document.getElementById("disconnectBtn");
-      
-      disconnectBtn.disabled = true;
-      disconnectBtn.innerHTML = '<div class="loading"></div> Disconnecting...';
-      updateSystemStatus('connecting', 'Disconnecting...');
-      
-      fetch('/api/wifi/disconnect', { method: 'POST' })
-        .then(response => response.json())
-        .then(result => {
-          showMessage(result.message, "info", "connectionMessage");
-          updateWiFiStatus();
-          disconnectBtn.disabled = false;
-          disconnectBtn.textContent = "Disconnect";
-        })
-        .catch(error => {
-          console.error('Error disconnecting from WiFi:', error);
-          showMessage("Error disconnecting from WiFi", "error", "connectionMessage");
-          disconnectBtn.disabled = false;
-          disconnectBtn.textContent = "Disconnect";
-        });
-    }
-
     function toggleAutoTemperature() {
       systemState.automation.temperature = !systemState.automation.temperature;
       const toggle = document.getElementById('tempToggle');
@@ -1198,7 +1571,6 @@
       if (updated) {
         showMessage('Thresholds saved successfully!', 'success', 'thresholdMessage');
         saveSettings();
-        // TODO: Send to ESP32 API
       } else {
         showMessage('Please enter at least one threshold value', 'error', 'thresholdMessage');
       }
@@ -1212,6 +1584,7 @@
       
       // Store in memory (would be localStorage in a real environment)
       window.greenhouseSettings = settings;
+      console.log('Settings saved:', settings);
     }
 
     function loadStoredSettings() {
@@ -1238,6 +1611,7 @@
             input.value = systemState.thresholds[key];
           }
         });
+        console.log('Stored settings loaded:', stored);
       }
     }
 
@@ -1245,6 +1619,7 @@
       const container = document.getElementById(containerId);
       if (!container) return;
       
+      console.log(`Message [${type}]:`, message);
       container.innerHTML = `<div class="message ${type}">${message}</div>`;
       
       setTimeout(() => {
@@ -1266,6 +1641,12 @@
           if (el) el.innerHTML = '';
         });
       }
+      
+      // Quick scan shortcut
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        scanWiFiNetworks();
+      }
     });
 
     // Enhanced error handling
@@ -1278,10 +1659,25 @@
     document.addEventListener('visibilitychange', function() {
       if (document.visibilityState === 'visible') {
         // Resume updates when tab becomes visible
+        console.log('Tab visible, resuming updates...');
         updateWiFiStatus();
         updateSensors();
       }
     });
+
+    // Enhanced auto-refresh with intelligent retry logic
+    setInterval(() => {
+      // Only auto-scan if:
+      // 1. No networks are available
+      // 2. No scan is currently in progress
+      // 3. We haven't exceeded max retries recently
+      if (systemState.availableNetworks.length === 0 && 
+          !systemState.scanInProgress && 
+          scanRetryCount < maxScanRetries) {
+        console.log('Auto-scanning for networks (no networks available)');
+        scanWiFiNetworks();
+      }
+    }, 45000); // Check every 45 seconds instead of 30
   </script>
 </body>
 </html>

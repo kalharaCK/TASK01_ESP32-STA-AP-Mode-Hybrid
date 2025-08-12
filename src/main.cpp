@@ -1,363 +1,269 @@
+/*
+  ESP32 Hybrid Mode WiFi Manager with Captive Portal and Embedded index.html
+  -------------------------------------------------------------------------
+  - AP + STA mode
+  - Serves embedded HTML dashboard from flash
+  - Scans nearby WiFi networks
+  - Connects/disconnects from WiFi
+  - JSON API for UI
+  - Captive portal via DNS spoofing + HTTP redirect
+
+  Dependencies:
+    - ArduinoJson v6
+*/
+
 #include <WiFi.h>
-#include <SPIFFS.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-#include <ArduinoJson.h>
+#include <WebServer.h>
 #include <DNSServer.h>
-#include "index_html.h" //converted index.html into a ready-to-use C header file
+#include <ArduinoJson.h>
+#include "index_html.h"  // Your embedded index.html header
 
-//============================STA mode credentials (your home router)==============================================
-const char* ssid_sta = "DEFAULT SSID";             // replace with your Wi-Fi SSID
-const char* password_sta = "DEFAULT PASSWORD";     // replace with your Wi-Fi password
-// Note: If you want to use the default credentials, leave them as is.
+// ====== CONFIGURATION ======
+const char* apSSID = "ESP32_AP";
+const char* apPassword = "12345678";
 
-//===========================AP mode credentials (ESP32's own Wi-Fi)===============================================
-const char* ssid_ap = "ESP32-AccessPoint";         // name of the ESP32's access point
-const char* password_ap = "12345678";              // must be at least 8 characters
-
-AsyncWebServer server(80);
+WebServer server(80);
 DNSServer dnsServer;
 
-// =====================Variables to store new WiFi credentials====================================================
-String new_ssid = "";
-String new_password = "";
-bool wifi_connect_requested = false;
+const byte DNS_PORT = 53;
 
-// Captive portal function - redirects all requests to our main page
-bool isCaptivePortal(AsyncWebServerRequest *request) {
-  if (!request->hasHeader("Host")) {
-    return true;
+// Cache variables for last WiFi scan
+String lastScanJson;
+bool lastScanAvailable = false;
+
+// ====== Helper: Convert encryption type enum to readable string ======
+String encryptionTypeStr(wifi_auth_mode_t type) {
+  switch (type) {
+    case WIFI_AUTH_OPEN: return "Open";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-Enterprise";
+    default: return "Unknown";
   }
-  String hostHeader = request->getHeader("Host")->value();
-  return !hostHeader.equals(WiFi.softAPIP().toString());
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
+// ====== ROUTE: Serve embedded index.html ======
+void handleRoot() {
+  Serial.println("[HTTP] GET / -> Serving embedded index.html");
+  // Send embedded html file stored in flash
+  server.sendHeader("Content-Length", String(index_html_len));
+  server.send(200, "text/html", (const char *)index_html);
+  Serial.println("[INFO] Embedded index.html served");
+}
 
-  // SPIFFS
-  if (!SPIFFS.begin(true)) {
-    Serial.println("SPIFFS Mount Failed");
+// ====== ROUTE: Scan WiFi networks ======
+void handleScan() {
+  Serial.println("[HTTP] GET /api/wifi/scan         -> Starting scan...");
+  int n = WiFi.scanNetworks(false, true);
+  Serial.printf("[INFO] Networks Found: %-3d\n", n);
+
+  if (n > 0) {
+    Serial.println("---------------------------------------------------------------");
+    Serial.printf("%-3s %-32s %-8s %-12s %-10s\n", "#", "SSID", "RSSI", "Encryption", "Encrypted");
+    Serial.println("---------------------------------------------------------------");
+  }
+
+  DynamicJsonDocument doc(4096);
+  doc["status"] = "success";
+  doc["count"] = (n > 0) ? n : 0;
+  JsonArray nets = doc.createNestedArray("networks");
+
+  if (n > 0) {
+    for (int i = 0; i < n; ++i) {
+      String encStr = encryptionTypeStr(WiFi.encryptionType(i));
+      bool isEnc = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+
+      JsonObject net = nets.createNestedObject();
+      net["ssid"] = WiFi.SSID(i);
+      net["rssi"] = WiFi.RSSI(i);
+      net["encryption"] = encStr;
+      net["encrypted"] = isEnc;
+
+      Serial.printf("%-3d %-32s %-8d %-12s %-10s\n",
+                    i + 1,
+                    WiFi.SSID(i).c_str(),
+                    WiFi.RSSI(i),
+                    encStr.c_str(),
+                    isEnc ? "Yes" : "No");
+    }
+    Serial.println("---------------------------------------------------------------");
+  }
+
+  String out;
+  serializeJson(doc, out);
+  lastScanJson = out;
+  lastScanAvailable = true;
+
+  WiFi.scanDelete();
+  server.send(200, "application/json", out);
+  Serial.println("[INFO] Scan results sent to client");
+}
+
+// ====== ROUTE: Return cached scan results ======
+void handleScanResults() {
+  Serial.println("[HTTP] GET /api/wifi/scan/results -> Returning cached results");
+  if (lastScanAvailable) {
+    server.send(200, "application/json", lastScanJson);
+  } else {
+    Serial.println("[WARN] No cached scan results");
+    server.send(404, "application/json", "{\"status\":\"error\",\"message\":\"No scan results\"}");
+  }
+}
+
+// ====== ROUTE: Connect to WiFi ======
+void handleConnect() {
+  Serial.println("[HTTP] POST /api/wifi/connect     -> Connect request");
+  if (server.method() != HTTP_POST) {
+    Serial.println("[ERROR] Invalid HTTP method");
+    server.send(405, "text/plain", "Method Not Allowed");
     return;
   }
-  
-  // Hybrid Mode
-  WiFi.mode(WIFI_AP_STA);
-  
-  //===================================Start Access Point (AP) mode===============================================
-  bool apResult = WiFi.softAP(ssid_ap, password_ap);
-  if (apResult) {
-    Serial.println("ESP32 AP started.");
-    Serial.print("AP IP Address: ");
-    Serial.println(WiFi.softAPIP());
-  } else {
-    Serial.println("Failed to start ESP32 AP.");
+
+  String body = server.arg("plain");
+  Serial.printf("[DEBUG] Request JSON: %s\n", body.c_str());
+
+  DynamicJsonDocument req(512);
+  if (deserializeJson(req, body)) {
+    Serial.println("[ERROR] JSON parse failed");
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+    return;
   }
 
-  // Start DNS Server for captive portal
-  if (dnsServer.start(53, "*", WiFi.softAPIP())) {
-    Serial.println("DNS Server started for captive portal");
-  } else {
-    Serial.println("Failed to start DNS Server");
+  const char* ssid = req["ssid"];
+  const char* password = req["password"];
+
+  if (!ssid || strlen(ssid) == 0) {
+    Serial.println("[ERROR] Missing SSID");
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing SSID\"}");
+    return;
   }
-  //==============================================================================================================
 
-  // ===================================Captive Portal Setup======================================================
-  // Handle captive portal detection requests
-  server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request){
-    String redirectURL = "http://" + WiFi.softAPIP().toString();
-    request->redirect(redirectURL);
-  });
-  
-  server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request){
-    String redirectURL = "http://" + WiFi.softAPIP().toString();
-    request->redirect(redirectURL);
-  });
-  
-  server.on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest *request){
-    String redirectURL = "http://" + WiFi.softAPIP().toString();
-    request->redirect(redirectURL);
-  });
-  
-  server.on("/redirect", HTTP_GET, [](AsyncWebServerRequest *request){
-    String redirectURL = "http://" + WiFi.softAPIP().toString();
-    request->redirect(redirectURL);
-  });
+  Serial.printf("[INFO] Connecting to SSID: %-32s\n", ssid);
+  if (password && strlen(password) > 0) {
+    Serial.println("[DEBUG] Using password: ******");
+    WiFi.begin(ssid, password);
+  } else {
+    Serial.println("[DEBUG] Open network, no password");
+    WiFi.begin(ssid);
+  }
 
-  // Additional captive portal detection endpoints
-  server.on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest *request){
-    String redirectURL = "http://" + WiFi.softAPIP().toString();
-    request->redirect(redirectURL);
-  });
-  
-  server.on("/success.txt", HTTP_GET, [](AsyncWebServerRequest *request){
-    String redirectURL = "http://" + WiFi.softAPIP().toString();
-    request->redirect(redirectURL);
-  });
-
-  // Catch-all handler for captive portal
-  server.onNotFound([](AsyncWebServerRequest *request){
-    Serial.println("Request for: " + request->url());
-    if (isCaptivePortal(request)) {
-      Serial.println("Captive portal redirect: " + request->url());
-      String redirectURL = "http://" + WiFi.softAPIP().toString();
-      request->redirect(redirectURL);
-    } else {
-      // Serve the main page instead of 404 for direct IP access
-      Serial.println("Serving main page for: " + request->url());
-      request->send_P(200, "text/html", (const char*)index_html);
-    }
-  });
-  //==============================================================================================================
-
-  // ===================================Serve dashboard===========================================================
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    Serial.println("Serving main dashboard page");
-    request->send_P(200, "text/html", (const char*)index_html);
-  });
-
-  // Alternative if you want to serve from SPIFFS:
-  /*
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, "/index.html", "text/html");
-  });
-  */
-
-  // ===========================API endpoint for WiFi connection==================================================
-  server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      
-      Serial.println("=== WiFi Connect API Called ===");
-      Serial.printf("Data length: %d\n", len);
-      Serial.printf("Raw data: %s\n", (char*)data);
-      
-      // Parse JSON data
-      DynamicJsonDocument doc(1024);
-      DeserializationError error = deserializeJson(doc, (char*)data);
-      
-      if (error) {
-        Serial.print("JSON parse error: ");
-        Serial.println(error.c_str());
-        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
-        return;
-      }
-      
-      String ssid = doc["ssid"];
-      String password = doc["password"];
-      
-      Serial.println("WiFi Connect Request:");
-      Serial.println("SSID: '" + ssid + "'");
-      Serial.println("Password: '" + password + "'");
-      Serial.printf("SSID length: %d\n", ssid.length());
-      Serial.printf("Password length: %d\n", password.length());
-      
-      if (ssid.length() == 0) {
-        Serial.println("ERROR: Empty SSID received!");
-        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"SSID cannot be empty\"}");
-        return;
-      }
-      
-      //===============================Store credentials for connection attempt===================================
-      new_ssid = ssid;
-      new_password = password;
-      wifi_connect_requested = true;
-      
-      Serial.println("Credentials stored, wifi_connect_requested set to true");
-      
-      // Send response
-      DynamicJsonDocument response(512);
-      response["status"] = "connecting";
-      response["message"] = "Attempting to connect to " + ssid;
-      
-      String responseStr;
-      serializeJson(response, responseStr);
-      request->send(200, "application/json", responseStr);
-      Serial.println("Response sent to client");
-    });
-  
-  // ==========================================API endpoint to get WiFi status====================================
-  server.on("/api/wifi/status", HTTP_GET, [](AsyncWebServerRequest *request){
-    DynamicJsonDocument doc(512);
-    
-    // AP Status
-    doc["ap"]["ssid"] = ssid_ap;
-    doc["ap"]["ip"] = WiFi.softAPIP().toString();
-    doc["ap"]["connected_clients"] = WiFi.softAPgetStationNum();
-    
-    // STA Status
-    doc["sta"]["status"] = WiFi.status();
-    doc["sta"]["connected"] = (WiFi.status() == WL_CONNECTED);
-    if (WiFi.status() == WL_CONNECTED) {
-      doc["sta"]["ssid"] = WiFi.SSID();
-      doc["sta"]["ip"] = WiFi.localIP().toString();
-      doc["sta"]["rssi"] = WiFi.RSSI();
-    } else {
-      doc["sta"]["ssid"] = "";
-      doc["sta"]["ip"] = "";
-      doc["sta"]["rssi"] = 0;
-    }
-    
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-  
-  // =========================================API endpoint to disconnect from WiFi================================
-  server.on("/api/wifi/disconnect", HTTP_POST, [](AsyncWebServerRequest *request){
-    WiFi.disconnect();
-    Serial.println("WiFi disconnected by user");
-    
-    DynamicJsonDocument doc(256);
-    doc["status"] = "disconnected";
-    doc["message"] = "Disconnected from WiFi";
-    
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // ===========================API endpoint to scan for available WiFi networks===================================
-  server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request){
-    Serial.println("WiFi scan requested");
-    
-    int networksFound = WiFi.scanNetworks();
-    DynamicJsonDocument doc(2048);
-    JsonArray networks = doc.createNestedArray("networks");
-    
-    for (int i = 0; i < networksFound; i++) {
-      JsonObject network = networks.createNestedObject();
-      network["ssid"] = WiFi.SSID(i);
-      network["rssi"] = WiFi.RSSI(i);
-      network["encryption"] = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "Open" : "Encrypted";
-    }
-    
-    WiFi.scanDelete(); // Clean up scan results
-    
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // Serve static files from SPIFFS
-  server.serveStatic("/", SPIFFS, "/");
-  
-  // Start the server
-  server.begin();
-  Serial.println("HTTP server started.");
-  
-  // =============================================================================================================
-
-  //======================================== Start Station (STA) mode=============================================
-  WiFi.begin(ssid_sta, password_sta);
-  Serial.println("Connecting to WiFi (STA Mode)...");
-
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 20) { // Increased retry count
+  // Wait up to 10 seconds for connection
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
     Serial.print(".");
-    retry++;
+    attempts++;
   }
+  Serial.println();
 
+  DynamicJsonDocument resp(512);
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nConnected to STA WiFi");
-    Serial.print("STA IP Address: ");
-    Serial.println(WiFi.localIP());
+    Serial.printf("[SUCCESS] Connected | IP: %-15s | RSSI: %d\n",
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.RSSI());
+    resp["status"] = "success";
+    resp["message"] = "Connected";
+    resp["ssid"] = WiFi.SSID();
+    resp["ip"] = WiFi.localIP().toString();
+    String out; serializeJson(resp, out);
+    server.send(200, "application/json", out);
   } else {
-    Serial.println("\nFailed to connect to STA WiFi");
+    Serial.println("[FAIL] Connection attempt failed");
+    resp["status"] = "error";
+    resp["message"] = "Failed to connect";
+    String out; serializeJson(resp, out);
+    server.send(500, "application/json", out);
   }
-  
-  // Print both IP addresses for easy access
-  Serial.println("=== Network Information ===");
-  Serial.print("AP IP Address: ");
-  Serial.println(WiFi.softAPIP());
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("STA IP Address: ");
-    Serial.println(WiFi.localIP());
-  }
-  Serial.println("===========================");
-  Serial.println("Captive Portal Active - Users will be automatically redirected to configuration page");
-  //==============================================================================================================
 }
 
-void loop() {
-  // Process DNS requests for captive portal
-  dnsServer.processNextRequest();
-  
-  // ===================================Handle WiFi connection requests===========================================
-  if (wifi_connect_requested) {
-    Serial.println("=== Processing WiFi Connection Request ===");
-    wifi_connect_requested = false;
-    
-    Serial.println("Attempting to connect to new WiFi...");
-    Serial.println("SSID: '" + new_ssid + "'");
-    Serial.println("Password: '" + new_password + "'");
-    
-    // Disconnect from current WiFi
-    Serial.println("Disconnecting from current WiFi...");
-    WiFi.disconnect();
-    delay(1000); // Reduced delay
-    
-    // Try to connect to new WiFi
-    Serial.println("Starting connection attempt...");
-    WiFi.begin(new_ssid.c_str(), new_password.c_str());
-    
-    int retry = 0;
-    while (WiFi.status() != WL_CONNECTED && retry < 30) {  // 15 second timeout
-      delay(500);
-      Serial.print(".");
-      retry++;
-      
-      // ==============================Continue processing DNS requests during connection attempt=========================
-      // This allows the captive portal to remain responsive
-      dnsServer.processNextRequest();
-      
-      if (retry % 10 == 0) {  // Print status every 5 seconds
-        Serial.println();
-        Serial.printf("Connection attempt %d/30, Status: %d\n", retry, WiFi.status());
-      }
-    }
-    Serial.println();
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("SUCCESS: Connected to: " + new_ssid);
-      Serial.print("New IP Address: ");
-      Serial.println(WiFi.localIP());
-      Serial.printf("Signal strength: %d dBm\n", WiFi.RSSI());
-    } else {
-      Serial.println("FAILED: Could not connect to: " + new_ssid);
-      Serial.printf("Final WiFi status: %d\n", WiFi.status());
-      Serial.println("WiFi Status meanings:");
-      Serial.println("0=WL_IDLE_STATUS, 1=WL_NO_SSID_AVAIL, 2=WL_SCAN_COMPLETED");
-      Serial.println("3=WL_CONNECTED, 4=WL_CONNECT_FAILED, 5=WL_CONNECTION_LOST, 6=WL_DISCONNECTED");
-      
-      // Only attempt to reconnect to original WiFi if it's not the default placeholder
-      if (String(ssid_sta) != "DEFAULT SSID") {
-        Serial.println("Attempting to reconnect to original WiFi...");
-        WiFi.begin(ssid_sta, password_sta);
-        
-        int original_retry = 0;
-        while (WiFi.status() != WL_CONNECTED && original_retry < 20) {
-          delay(500);
-          Serial.print("o");
-          original_retry++;
-          
-          // Continue processing DNS requests during reconnection attempt
-          dnsServer.processNextRequest();
-        }
-        Serial.println();
-        
-        if (WiFi.status() == WL_CONNECTED) {
-          Serial.println("Reconnected to original WiFi: " + String(ssid_sta));
-          Serial.print("IP Address: ");
-          Serial.println(WiFi.localIP());
-        } else {
-          Serial.println("Failed to reconnect to original WiFi!");
-        }
-      }
-    }
-    Serial.println("=== WiFi Connection Process Complete ===");
+// ====== ROUTE: Disconnect from WiFi ======
+void handleDisconnect() {
+  Serial.println("[HTTP] POST /api/wifi/disconnect  -> Disconnect request");
+  WiFi.disconnect(true, true);  // Disconnect and erase stored credentials
+  Serial.println("[INFO] Disconnected from STA");
+  server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Disconnected\"}");
+}
+
+// ====== ROUTE: Status info ======
+void handleStatus() {
+  Serial.println("[HTTP] GET /api/wifi/status       -> Status request");
+  DynamicJsonDocument doc(512);
+
+  // AP Info
+  JsonObject ap = doc.createNestedObject("ap");
+  ap["ssid"] = apSSID;
+  ap["ip"] = WiFi.softAPIP().toString();
+  ap["connected_clients"] = WiFi.softAPgetStationNum();
+
+  Serial.printf("[DEBUG] AP:   SSID: %-32s IP: %-15s Clients: %d\n",
+                apSSID,
+                WiFi.softAPIP().toString().c_str(),
+                WiFi.softAPgetStationNum());
+
+  // STA Info
+  JsonObject sta = doc.createNestedObject("sta");
+  sta["connected"] = (WiFi.status() == WL_CONNECTED);
+  if (WiFi.status() == WL_CONNECTED) {
+    sta["ssid"] = WiFi.SSID();
+    sta["ip"] = WiFi.localIP().toString();
+    sta["rssi"] = WiFi.RSSI();
+
+    Serial.printf("[DEBUG] STA:  SSID: %-32s IP: %-15s RSSI: %d\n",
+                  WiFi.SSID().c_str(),
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.RSSI());
+  } else {
+    Serial.println("[DEBUG] STA:  Not connected");
   }
-  
-  delay(100);
+
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+// ====== SETUP ======
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n===== ESP32 WiFi Manager Booting =====");
+
+  // Start AP + STA mode
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(apSSID, apPassword);
+
+  IPAddress apIP = WiFi.softAPIP();
+
+  Serial.printf("[INFO] AP Started | SSID: %-32s IP: %-15s\n",
+                apSSID,
+                apIP.toString().c_str());
+
+  // Start DNS Server for captive portal - redirects all DNS queries to ESP32
+  dnsServer.start(DNS_PORT, "*", apIP);
+
+  // Web routes
+  server.on("/", HTTP_GET, handleRoot);
+
+  // Captive portal - redirect unknown URLs to main page
+  server.onNotFound([]() {
+    Serial.printf("[HTTP] Unknown URL %s - redirecting to /\n", server.uri().c_str());
+    IPAddress apIP = WiFi.softAPIP();
+    server.sendHeader("Location", String("http://") + apIP.toString(), true);
+    server.send(302, "text/plain", "");
+  });
+
+  // API endpoints
+  server.on("/api/wifi/scan", HTTP_GET, handleScan);
+  server.on("/api/wifi/scan/results", HTTP_GET, handleScanResults);
+  server.on("/api/wifi/connect", HTTP_POST, handleConnect);
+  server.on("/api/wifi/disconnect", HTTP_POST, handleDisconnect);
+  server.on("/api/wifi/status", HTTP_GET, handleStatus);
+
+  server.begin();
+  Serial.println("[INFO] HTTP server started");
+}
+
+// ====== MAIN LOOP ======
+void loop() {
+  dnsServer.processNextRequest();  // Handle captive portal DNS requests
+  server.handleClient();           // Handle web server requests
 }
