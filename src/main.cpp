@@ -18,9 +18,10 @@
 #include <ArduinoJson.h>
 #include "index_html.h"  // Your embedded index.html header
 
-// ====== CONFIGURATION ======
+// =========================================================== CONFIGURATION ===================================================================
 const char* apSSID = "ESP32_AP";
 const char* apPassword = "12345678";
+//==============================================================================================================================================
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -31,7 +32,7 @@ const byte DNS_PORT = 53;
 String lastScanJson;
 bool lastScanAvailable = false;
 
-// ====== Helper: Convert encryption type enum to readable string ======
+// ================================ Helper: Convert encryption type enum to readable string ===================================================
 String encryptionTypeStr(wifi_auth_mode_t type) {
   switch (type) {
     case WIFI_AUTH_OPEN: return "Open";
@@ -44,7 +45,7 @@ String encryptionTypeStr(wifi_auth_mode_t type) {
   }
 }
 
-// ====== ROUTE: Serve embedded index.html ======
+// ============================================= ROUTE: Serve embedded index.html ===============================================================
 void handleRoot() {
   Serial.println("[HTTP] GET / -> Serving embedded index.html");
   // Send embedded html file stored in flash
@@ -53,7 +54,7 @@ void handleRoot() {
   Serial.println("[INFO] Embedded index.html served");
 }
 
-// ====== ROUTE: Scan WiFi networks ======
+// ============================================== ROUTE: Scan WiFi networks =====================================================================
 void handleScan() {
   Serial.println("[HTTP] GET /api/wifi/scan         -> Starting scan...");
   int n = WiFi.scanNetworks(false, true);
@@ -112,7 +113,7 @@ void handleScanResults() {
   }
 }
 
-// ====== ROUTE: Connect to WiFi ======
+// =========================================================== ROUTE: Connect to WiFi ==========================================================
 void handleConnect() {
   Serial.println("[HTTP] POST /api/wifi/connect     -> Connect request");
   if (server.method() != HTTP_POST) {
@@ -149,7 +150,7 @@ void handleConnect() {
     WiFi.begin(ssid);
   }
 
-  // Wait up to 10 seconds for connection
+  //===================================================Wait up to 10 seconds for connection======================================================
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
@@ -178,7 +179,7 @@ void handleConnect() {
   }
 }
 
-// ====== ROUTE: Disconnect from WiFi ======
+// ===================================================== ROUTE: Disconnect from WiFi ============================================================
 void handleDisconnect() {
   Serial.println("[HTTP] POST /api/wifi/disconnect  -> Disconnect request");
   WiFi.disconnect(true, true);  // Disconnect and erase stored credentials
@@ -186,7 +187,7 @@ void handleDisconnect() {
   server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Disconnected\"}");
 }
 
-// ====== ROUTE: Status info ======
+// ======================================================== ROUTE: Status info ======================================================================
 void handleStatus() {
   Serial.println("[HTTP] GET /api/wifi/status       -> Status request");
   DynamicJsonDocument doc(512);
@@ -222,7 +223,7 @@ void handleStatus() {
   server.send(200, "application/json", out);
 }
 
-// ====== SETUP ======
+// ================================================================= SETUP =====================================================================
 void setup() {
   Serial.begin(115200);
   Serial.println("\n===== ESP32 WiFi Manager Booting =====");
@@ -262,7 +263,7 @@ void setup() {
   Serial.println("[INFO] HTTP server started");
 }
 
-// ====== MAIN LOOP ======
+// =============================================================== MAIN LOOP ====================================================================
 void loop() {
   dnsServer.processNextRequest();  // Handle captive portal DNS requests
   server.handleClient();           // Handle web server requests
