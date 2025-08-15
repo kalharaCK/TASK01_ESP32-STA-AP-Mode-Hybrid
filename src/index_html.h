@@ -879,67 +879,193 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     let scanRetryCount = 0;
     const maxScanRetries = 3;
     const scanRetryDelay = 5000;
+    let updateTimers = {
+      sensors: null,
+      status: null,
+      systemInfo: null
+    };
 
-    function autoRetryScan() {
-      if (scanRetryCount < maxScanRetries && systemState.availableNetworks.length === 0 && !systemState.scanInProgress) {
-        scanRetryCount++;
-        console.log(`Auto-retrying scan (attempt ${scanRetryCount}/${maxScanRetries})`);
-        
-        showMessage(`Retrying network scan (${scanRetryCount}/${maxScanRetries})...`, "warning", "connectionMessage");
-        
-        setTimeout(() => {
-          if (!systemState.scanInProgress) {
-            scanWiFiNetworks();
-          }
-        }, scanRetryDelay);
-      } else if (scanRetryCount >= maxScanRetries) {
-        console.log('Max scan retries reached. Stopping auto-retry.');
-        showMessage("Unable to scan networks after multiple attempts. Please try manual scan.", "error", "connectionMessage");
-        
-        setTimeout(() => {
-          scanRetryCount = 0;
-          console.log('Scan retry count reset. Auto-retry available again.');
-        }, 30000);
-      }
-    }
-
-    function resetScanRetryCount() {
-      if (scanRetryCount > 0) {
-        console.log(`Scan successful! Reset retry count from ${scanRetryCount} to 0`);
-        scanRetryCount = 0;
-      }
-    }
-
+    // Initialize dashboard
     document.addEventListener('DOMContentLoaded', function() {
-      console.log('Dashboard initializing...');
+      console.log('Greenhouse Dashboard initializing...');
       updateSystemStatus('connecting', 'Initializing system...');
-      startSensorSimulation();
       loadStoredSettings();
       
-      setInterval(updateSensors, 3000);
-      setInterval(updateWiFiStatus, 5000);
-      setInterval(updateSystemInfo, 1000);
+      // Start update intervals
+      startUpdateIntervals();
       
-      updateWiFiStatus();
-      updateSystemInfo();
-      
+      // Initial updates
       setTimeout(() => {
-        scanWiFiNetworks();
+        updateWiFiStatus();
+        updateSensors();
+        updateSystemInfo();
+        
+        // Auto-scan after initial load
         setTimeout(() => {
-          autoRetryScan();
-        }, 10000);
-      }, 3000);
+          scanWiFiNetworks();
+        }, 2000);
+      }, 1000);
+      
+      console.log('Dashboard initialized successfully');
     });
+
+    function startUpdateIntervals() {
+      // Clear existing timers
+      Object.values(updateTimers).forEach(timer => {
+        if (timer) clearInterval(timer);
+      });
+      
+      // Sensor updates every 3 seconds
+      updateTimers.sensors = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          updateSensors();
+        }
+      }, 3000);
+      
+      // WiFi status every 5 seconds
+      updateTimers.status = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          updateWiFiStatus();
+        }
+      }, 5000);
+      
+      // System info every 1 second
+      updateTimers.systemInfo = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          updateSystemInfo();
+        }
+      }, 1000);
+    }
+
+    function updateSensors() {
+      fetch('/api/sensors')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('Sensor data received:', data);
+          
+          // Store previous values for trend calculation
+          if (systemState.sensors.temperature.current !== null) {
+            systemState.sensors.temperature.previous = systemState.sensors.temperature.current;
+            systemState.sensors.humidity.previous = systemState.sensors.humidity.current;
+            systemState.sensors.light.previous = systemState.sensors.light.current;
+          }
+          
+          // Update current values
+          systemState.sensors.temperature.current = data.temperature;
+          systemState.sensors.humidity.current = data.humidity;
+          systemState.sensors.light.current = data.light;
+          
+          // Calculate trends
+          systemState.sensors.temperature.trend = calculateTrend(
+            systemState.sensors.temperature.previous, 
+            systemState.sensors.temperature.current
+          );
+          systemState.sensors.humidity.trend = calculateTrend(
+            systemState.sensors.humidity.previous, 
+            systemState.sensors.humidity.current
+          );
+          systemState.sensors.light.trend = calculateTrend(
+            systemState.sensors.light.previous, 
+            systemState.sensors.light.current
+          );
+          
+          updateSensorDisplays();
+          systemState.connection.retryCount = 0;
+        })
+        .catch(error => {
+          console.error('Sensor update error:', error);
+          systemState.connection.retryCount++;
+          
+          if (systemState.connection.retryCount >= 3) {
+            updateSystemStatus('offline', 'Sensor data unavailable');
+          }
+        });
+    }
+
+    function updateSensorDisplays() {
+      const temp = systemState.sensors.temperature;
+      const humidity = systemState.sensors.humidity;
+      const light = systemState.sensors.light;
+      
+      // Update gauge values with proper formatting
+      document.getElementById("temperatureValue").textContent = 
+        temp.current !== null ? `${temp.current.toFixed(1)}°C` : '--°C';
+      document.getElementById("humidityValue").textContent = 
+        humidity.current !== null ? `${humidity.current.toFixed(0)}%` : '--%';
+      document.getElementById("lightValue").textContent = 
+        light.current !== null ? `${light.current.toFixed(0)} lx` : '-- lx';
+      
+      // Update trend indicators
+      document.getElementById("tempTrend").innerHTML = getTrendIcon(temp.trend);
+      document.getElementById("humidityTrend").innerHTML = getTrendIcon(humidity.trend);
+      document.getElementById("lightTrend").innerHTML = getTrendIcon(light.trend);
+      
+      // Update system status if sensors are working
+      if (temp.current !== null && humidity.current !== null && light.current !== null) {
+        updateSystemStatus('online', 'All systems operational');
+      }
+      
+      // Check thresholds for automation
+      checkThresholds();
+    }
+
+    function calculateTrend(previous, current) {
+      if (previous === null || current === null) return 'stable';
+      const diff = current - previous;
+      if (Math.abs(diff) < 0.5) return 'stable';
+      return diff > 0 ? 'rising' : 'falling';
+    }
+
+    function getTrendIcon(trend) {
+      switch(trend) {
+        case 'rising': 
+          return '<span style="color: var(--accent-orange);">↗ Rising</span>';
+        case 'falling': 
+          return '<span style="color: var(--accent-blue);">↘ Falling</span>';
+        default: 
+          return '<span style="color: var(--text-secondary);">→ Stable</span>';
+      }
+    }
+
+    function checkThresholds() {
+      const alerts = [];
+      const temp = systemState.sensors.temperature.current;
+      const humidity = systemState.sensors.humidity.current;
+      const light = systemState.sensors.light.current;
+      
+      if (temp !== null && (temp < systemState.thresholds.tempMin || temp > systemState.thresholds.tempMax)) {
+        alerts.push(`Temperature ${temp.toFixed(1)}°C is outside optimal range`);
+      }
+      
+      if (humidity !== null && humidity > systemState.thresholds.humidity) {
+        alerts.push(`Humidity ${humidity.toFixed(0)}% exceeds threshold`);
+      }
+      
+      if (light !== null && light < systemState.thresholds.light) {
+        alerts.push(`Light level ${light.toFixed(0)} lx below threshold`);
+      }
+      
+      if (alerts.length > 0 && Object.values(systemState.automation).some(auto => auto)) {
+        console.log('Threshold alerts:', alerts);
+        // Future: Trigger automation actions here
+      }
+    }
 
     function scanWiFiNetworks() {
       const scanBtn = document.getElementById('scanBtn');
       const select = document.getElementById('wifiNetworkSelect');
       
       if (systemState.scanInProgress) {
-        console.log('Scan already in progress');
+        console.log('Scan already in progress, ignoring request');
         return;
       }
       
+      console.log('Starting WiFi network scan...');
       systemState.scanInProgress = true;
       scanBtn.disabled = true;
       scanBtn.innerHTML = '<div class="loading"></div> Starting Scan...';
@@ -947,72 +1073,56 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       select.innerHTML = '<option value="">Starting network scan...</option>';
       showMessage("Starting WiFi network scan...", "info", "connectionMessage");
       
-      console.log('Starting async network scan...');
-      
       fetch('/api/wifi/scan')
         .then(response => {
-          console.log('Scan start response status:', response.status);
+          console.log('Scan start response:', response.status, response.statusText);
+          
           if (response.status === 202) {
+            // Scan started successfully
             scanBtn.innerHTML = '<div class="loading"></div> Scanning...';
             select.innerHTML = '<option value="">Scanning for networks...</option>';
             showMessage("Scanning in progress, please wait...", "info", "connectionMessage");
             
+            // Start polling for results
             pollScanResults();
+            
           } else if (response.status === 429) {
-            throw new Error('Please wait before scanning again');
+            throw new Error('Scan already in progress');
+          } else if (response.status >= 500) {
+            throw new Error('Server error starting scan');
           } else if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          } else {
-            return response.json();
-          }
-        })
-        .then(data => {
-          if (data) {
-            processScanResults(data);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
         })
         .catch(error => {
           console.error('Error starting WiFi scan:', error);
-          handleScanError(error.message);
+          handleScanError(error.message || 'Unknown error starting scan');
         });
     }
 
-    function handleScanError(errorMessage) {
-      systemState.scanInProgress = false;
-      const scanBtn = document.getElementById('scanBtn');
-      const select = document.getElementById('wifiNetworkSelect');
-      
-      scanBtn.disabled = false;
-      scanBtn.innerHTML = ' Scan Networks';
-      
-      select.innerHTML = '<option value="">Error starting scan - Click to retry...</option>';
-      showMessage("Scan error: " + errorMessage, "error", "connectionMessage");
-      
-      setTimeout(() => {
-        autoRetryScan();
-      }, 3000);
-    }
-
     function pollScanResults() {
-      const maxAttempts = 25;
+      const maxAttempts = 30; // 30 seconds max
       let attempts = 0;
       
       const checkResults = () => {
         attempts++;
-        console.log(`Checking scan results, attempt ${attempts}/${maxAttempts}`);
+        console.log(`Polling scan results, attempt ${attempts}/${maxAttempts}`);
         
         fetch('/api/wifi/scan/results')
           .then(response => {
+            console.log('Scan results response:', response.status, response.statusText);
+            
             if (response.status === 202) {
+              // Still scanning
               if (attempts < maxAttempts) {
                 setTimeout(checkResults, 1000);
               } else {
-                throw new Error('Scan timeout - taking too long (watchdog protection)');
+                throw new Error('Scan timeout - taking too long');
               }
             } else if (response.ok) {
               return response.json();
             } else {
-              throw new Error(`HTTP error! status: ${response.status}`);
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
           })
           .then(data => {
@@ -1021,11 +1131,12 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
             }
           })
           .catch(error => {
-            console.error('Error getting scan results:', error);
-            handleScanError(error.message);
+            console.error('Error polling scan results:', error);
+            handleScanError(error.message || 'Error getting scan results');
           });
       };
       
+      // Start polling after 2 seconds
       setTimeout(checkResults, 2000);
     }
     
@@ -1033,53 +1144,66 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       const scanBtn = document.getElementById('scanBtn');
       const select = document.getElementById('wifiNetworkSelect');
       
+      console.log('Processing scan results:', data);
+      
       systemState.scanInProgress = false;
       scanBtn.disabled = false;
       scanBtn.innerHTML = ' Scan Networks';
-      
-      console.log('Processing scan results:', data);
       
       if (data.status === 'success' && data.networks && Array.isArray(data.networks)) {
         systemState.availableNetworks = data.networks;
         updateNetworkDropdown();
         
         const networkCount = data.networks.length;
-        document.getElementById('networkCount').textContent = networkCount;
         showMessage(`Found ${networkCount} network(s)`, "success", "connectionMessage");
         console.log(`Successfully found ${networkCount} networks`);
         
-        resetScanRetryCount();
+        // Reset retry count on success
+        scanRetryCount = 0;
         
-      } else if (data.status === 'success' && data.count === 0) {
-        console.log('No networks found');
+      } else if (data.status === 'success' && data.networks && data.networks.length === 0) {
+        console.log('No networks found in scan');
         systemState.availableNetworks = [];
         updateNetworkDropdown();
         showMessage("No networks found in range", "warning", "connectionMessage");
         
-        setTimeout(() => {
-          autoRetryScan();
-        }, 3000);
-        
       } else if (data.status === 'error') {
-        console.log('Scan failed with error:', data);
+        console.error('Scan failed:', data);
         systemState.availableNetworks = [];
         updateNetworkDropdown();
-        const errorMsg = data.message || "Scan failed - possible watchdog timeout";
+        const errorMsg = data.message || "Scan failed";
         showMessage(errorMsg, "error", "connectionMessage");
         
-        setTimeout(() => {
-          autoRetryScan();
-        }, 3000);
-        
       } else {
-        console.log('Invalid scan response:', data);
+        console.error('Invalid scan response format:', data);
         systemState.availableNetworks = [];
         updateNetworkDropdown();
         showMessage("Invalid scan response received", "error", "connectionMessage");
-        
+      }
+    }
+
+    function handleScanError(errorMessage) {
+      console.error('Scan error:', errorMessage);
+      
+      const scanBtn = document.getElementById('scanBtn');
+      const select = document.getElementById('wifiNetworkSelect');
+      
+      systemState.scanInProgress = false;
+      scanBtn.disabled = false;
+      scanBtn.innerHTML = ' Scan Networks';
+      
+      select.innerHTML = '<option value="">Scan failed - Click to retry...</option>';
+      showMessage("Scan error: " + errorMessage, "error", "connectionMessage");
+      
+      // Auto-retry logic
+      if (scanRetryCount < maxScanRetries) {
+        scanRetryCount++;
         setTimeout(() => {
-          autoRetryScan();
-        }, 3000);
+          if (!systemState.scanInProgress) {
+            console.log(`Auto-retrying scan (${scanRetryCount}/${maxScanRetries})`);
+            scanWiFiNetworks();
+          }
+        }, scanRetryDelay);
       }
     }
 
@@ -1088,22 +1212,21 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       
       console.log('Updating network dropdown with', systemState.availableNetworks.length, 'networks');
       
+      // Clear existing options
       select.innerHTML = '';
       
+      // Add default option
       const defaultOption = document.createElement('option');
       defaultOption.value = '';
-      defaultOption.textContent = 'Select a network...';
+      defaultOption.textContent = systemState.availableNetworks.length > 0 ? 
+        'Select a network...' : 'No networks found - Click scan to refresh';
       select.appendChild(defaultOption);
       
       if (systemState.availableNetworks.length === 0) {
-        const noNetworkOption = document.createElement('option');
-        noNetworkOption.value = '';
-        noNetworkOption.textContent = 'No networks found - Click scan to refresh';
-        noNetworkOption.disabled = true;
-        select.appendChild(noNetworkOption);
         return;
       }
       
+      // Sort networks by signal strength (RSSI)
       const sortedNetworks = [...systemState.availableNetworks].sort((a, b) => b.rssi - a.rssi);
       
       sortedNetworks.forEach((network, index) => {
@@ -1114,36 +1237,31 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           const signalStrength = getSignalStrengthText(network.rssi);
           const securityIcon = network.encryption === 'Open' ? '' : '';
           
-      
-
         const ssidWidth = 20;
         const rssiWidth = 5;
 
         const ssidPadded = network.ssid.padEnd(ssidWidth, ' ');
         const rssiPadded = String(signalStrength).padStart(rssiWidth, ' ');
 
-        option.textContent = `${ssidPadded} ${securityIcon} (${rssiPadded})`;
+        option.textContent = `${ssidPadded} ${securityIcon} ${rssiPadded}dB`;
           
-
+          // Store metadata
           option.dataset.rssi = network.rssi;
           option.dataset.encryption = network.encryption;
           option.dataset.encrypted = network.encrypted;
           
           select.appendChild(option);
           
-          console.log(`Added network ${index + 1}: ${network.ssid} (${signalStrength}, ${network.encryption})`);
+          console.log(`Added network: ${network.ssid} (${signalStrength}, ${network.encryption})`);
         }
       });
       
-      console.log(`Dropdown updated with ${select.options.length - 1} networks`);
+      console.log(`Network dropdown updated with ${select.options.length - 1} networks`);
     }
 
     function getSignalStrengthText(rssi) {
-      if (rssi >= -50) return 'Excellent';
-      if (rssi >= -60) return 'Very Good';
-      if (rssi >= -70) return 'Good';
-      if (rssi >= -80) return 'Fair';
-      return 'Weak';
+      
+      return rssi;
     }
 
     function connectToWiFi() {
@@ -1162,6 +1280,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       const isOpenNetwork = selectedOption && selectedOption.dataset.encrypted === 'false';
       
       console.log('Network is open:', isOpenNetwork);
+      console.log('Password provided:', password ? '[HIDDEN]' : '[NONE]');
       
       if (!isOpenNetwork && !password) {
         showMessage("Please enter the WiFi password", "error", "connectionMessage");
@@ -1173,41 +1292,53 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       showMessage(`Connecting to ${selectedNetwork}...`, "info", "connectionMessage");
       updateSystemStatus('connecting', `Connecting to ${selectedNetwork}...`);
       
-      const data = { 
+      const connectionData = { 
         ssid: selectedNetwork, 
         password: isOpenNetwork ? "" : password 
       };
       
-      console.log('Sending connection request:', { ssid: selectedNetwork, password: isOpenNetwork ? "[OPEN]" : "[HIDDEN]" });
+      console.log('Sending connection request for:', selectedNetwork);
       
       fetch('/api/wifi/connect', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(connectionData)
       })
       .then(response => {
-        console.log('Connection response status:', response.status);
+        console.log('Connection response status:', response.status, response.statusText);
+        
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         return response.json();
       })
       .then(result => {
         console.log('Connection result:', result);
-        showMessage(result.message, "info", "connectionMessage");
         
+        if (result.status === 'success') {
+          showMessage(` ${result.message}`, "success", "connectionMessage");
+          updateSystemStatus('online', `Connected to ${result.ssid}`);
+        } else {
+          showMessage(` ${result.message}`, "error", "connectionMessage");
+          updateSystemStatus('offline', 'Connection failed');
+        }
+        
+        // Update WiFi status after connection attempt
         setTimeout(() => {
           updateWiFiStatus();
-          connectBtn.disabled = false;
-          connectBtn.textContent = "Connect Network";
-        }, 15000);
+        }, 2000);
       })
       .catch(error => {
         console.error('Error connecting to WiFi:', error);
-        showMessage("Error connecting to WiFi: " + error.message, "error", "connectionMessage");
+        showMessage(` Connection error: ${error.message}`, "error", "connectionMessage");
+        updateSystemStatus('offline', 'Connection failed');
+      })
+      .finally(() => {
         connectBtn.disabled = false;
         connectBtn.textContent = "Connect Network";
-        updateSystemStatus('offline', 'Connection failed');
       });
     }
 
@@ -1217,113 +1348,185 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       disconnectBtn.disabled = true;
       disconnectBtn.innerHTML = '<div class="loading"></div> Disconnecting...';
       updateSystemStatus('connecting', 'Disconnecting...');
+      showMessage("Disconnecting from WiFi...", "info", "connectionMessage");
       
-      fetch('/api/wifi/disconnect', { method: 'POST' })
+      fetch('/api/wifi/disconnect', { 
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json'
+        }
+      })
+      .then(response => {
+        console.log('Disconnect response status:', response.status, response.statusText);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+      })
+      .then(result => {
+        console.log('Disconnect result:', result);
+        showMessage(` ${result.message}`, "success", "connectionMessage");
+        updateSystemStatus('offline', 'Disconnected from WiFi');
+        
+        // Update status after disconnect
+        setTimeout(() => {
+          updateWiFiStatus();
+        }, 1000);
+      })
+      .catch(error => {
+        console.error('Error disconnecting from WiFi:', error);
+        showMessage(` Disconnect error: ${error.message}`, "error", "connectionMessage");
+      })
+      .finally(() => {
+        disconnectBtn.disabled = false;
+        disconnectBtn.textContent = "Disconnect";
+      });
+    }
+
+    function updateWiFiStatus() {
+      fetch('/api/wifi/status')
         .then(response => {
           if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
           return response.json();
         })
-        .then(result => {
-          console.log('Disconnect result:', result);
-          showMessage(result.message, "info", "connectionMessage");
-          updateWiFiStatus();
-          disconnectBtn.disabled = false;
-          disconnectBtn.textContent = "Disconnect";
+        .then(data => {
+          console.log('WiFi status received:', data);
+          displayWiFiStatus(data);
+          systemState.connection.retryCount = 0;
         })
         .catch(error => {
-          console.error('Error disconnecting from WiFi:', error);
-          showMessage("Error disconnecting from WiFi: " + error.message, "error", "connectionMessage");
-          disconnectBtn.disabled = false;
-          disconnectBtn.textContent = "Disconnect";
+          console.error('Error fetching WiFi status:', error);
+          systemState.connection.retryCount++;
+          
+          if (systemState.connection.retryCount > 3) {
+            updateSystemStatus('offline', 'Connection lost');
+          }
+          
+          displayWiFiStatusError();
         });
     }
 
-    function startSensorSimulation() {
-      systemState.sensors.temperature.current = 22 + Math.random() * 6;
-      systemState.sensors.humidity.current = 60 + Math.random() * 20;
-      systemState.sensors.light.current = 500 + Math.random() * 1000;
+    function displayWiFiStatus(data) {
+      const statusDisplay = document.getElementById('wifiStatusDisplay');
+      let statusHTML = '';
       
-      updateSensorDisplays();
-    }
-
-    function updateSensors() {
-      const temp = systemState.sensors.temperature;
-      const humidity = systemState.sensors.humidity;
-      const light = systemState.sensors.light;
+      // Access Point Status
+      statusHTML += `
+        <div class="status-item">
+          <span class="status-label">Access Point</span>
+          <span class="status-value">
+            <div class="status-indicator status-connected"></div>
+            ${data.ap.ssid} (${data.ap.connected_clients} clients)
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">AP IP Address</span>
+          <span class="status-value">${data.ap.ip}</span>
+        </div>
+      `;
       
-      temp.previous = temp.current;
-      humidity.previous = humidity.current;
-      light.previous = light.current;
-      
-      temp.current = Math.max(15, Math.min(35, temp.current + (Math.random() - 0.5) * 2));
-      humidity.current = Math.max(30, Math.min(90, humidity.current + (Math.random() - 0.5) * 5));
-      light.current = Math.max(0, Math.min(2000, light.current + (Math.random() - 0.5) * 200));
-      
-      temp.trend = calculateTrend(temp.previous, temp.current);
-      humidity.trend = calculateTrend(humidity.previous, humidity.current);
-      light.trend = calculateTrend(light.previous, light.current);
-      
-      systemState.system.dataPoints++;
-      systemState.connection.lastUpdate = new Date();
-      
-      updateSensorDisplays();
-      checkThresholds();
-    }
-
-    function calculateTrend(previous, current) {
-      if (previous === null) return 'stable';
-      const diff = current - previous;
-      if (Math.abs(diff) < 0.5) return 'stable';
-      return diff > 0 ? 'rising' : 'falling';
-    }
-
-    function updateSensorDisplays() {
-      const temp = systemState.sensors.temperature;
-      const humidity = systemState.sensors.humidity;
-      const light = systemState.sensors.light;
-      
-      document.getElementById("temperatureValue").textContent = `${temp.current.toFixed(1)}°C`;
-      document.getElementById("humidityValue").textContent = `${humidity.current.toFixed(0)}%`;
-      document.getElementById("lightValue").textContent = `${light.current.toFixed(0)} lx`;
-      
-      document.getElementById("tempTrend").innerHTML = getTrendIcon(temp.trend);
-      document.getElementById("humidityTrend").innerHTML = getTrendIcon(humidity.trend);
-      document.getElementById("lightTrend").innerHTML = getTrendIcon(light.trend);
-      
-      updateSystemStatus('online', 'All systems operational');
-    }
-
-    function getTrendIcon(trend) {
-      switch(trend) {
-        case 'rising': return '<span style="color: var(--accent-orange);">↗ Rising</span>';
-        case 'falling': return '<span style="color: var(--accent-blue);">↘ Falling</span>';
-        default: return '<span style="color: var(--text-secondary);">→ Stable</span>';
-      }
-    }
-
-    function checkThresholds() {
-      const alerts = [];
-      const temp = systemState.sensors.temperature.current;
-      const humidity = systemState.sensors.humidity.current;
-      const light = systemState.sensors.light.current;
-      
-      if (temp < systemState.thresholds.tempMin || temp > systemState.thresholds.tempMax) {
-        alerts.push(`Temperature ${temp.toFixed(1)}°C is outside optimal range`);
+      // Station (WiFi Client) Status
+      if (data.sta.connected) {
+        const signalBars = getSignalBars(data.sta.rssi);
+        statusHTML += `
+          <div class="status-item">
+            <span class="status-label">Internet Connection</span>
+            <span class="status-value">
+              <div class="status-indicator status-connected"></div>
+              Connected to ${data.sta.ssid}
+            </span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">IP Address</span>
+            <span class="status-value">${data.sta.ip}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Signal Strength</span>
+            <span class="status-value">
+              ${signalBars}
+              ${data.sta.rssi} dBm (${getSignalStrengthText(data.sta.rssi)})
+            </span>
+          </div>
+        `;
+      } else {
+        statusHTML += `
+          <div class="status-item">
+            <span class="status-label">Internet Connection</span>
+            <span class="status-value">
+              <div class="status-indicator status-disconnected"></div>
+              Not connected
+            </span>
+          </div>
+        `;
       }
       
-      if (humidity > systemState.thresholds.humidity) {
-        alerts.push(`Humidity ${humidity.toFixed(0)}% exceeds threshold`);
+      statusDisplay.innerHTML = statusHTML;
+    }
+
+    function displayWiFiStatusError() {
+      const statusDisplay = document.getElementById('wifiStatusDisplay');
+      statusDisplay.innerHTML = `
+        <div class="status-item">
+          <span class="status-label">Status</span>
+          <span class="status-value">
+            <div class="status-indicator status-disconnected"></div>
+            Error fetching status (Retry ${systemState.connection.retryCount})
+          </span>
+        </div>
+      `;
+    }
+
+    function getSignalBars(rssi) {
+      const strength = Math.max(0, Math.min(4, Math.floor((rssi + 100) / 12.5)));
+      let bars = '<div class="signal-strength">';
+      for (let i = 1; i <= 4; i++) {
+        bars += `<div class="signal-bar ${i <= strength ? 'active' : ''}"></div>`;
       }
-      
-      if (light < systemState.thresholds.light) {
-        alerts.push(`Light level ${light.toFixed(0)} lx below threshold`);
-      }
-      
-      if (alerts.length > 0 && systemState.automation.temperature) {
-        console.log('Auto-adjusting climate control...');
-      }
+      bars += '</div>';
+      return bars;
+    }
+
+    function updateSystemInfo() {
+      fetch('/api/system/info')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('System info received:', data);
+          
+          // Update uptime
+          const uptimeSeconds = data.uptime_sec;
+          const hours = Math.floor(uptimeSeconds / 3600);
+          const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+          const seconds = uptimeSeconds % 60;
+          document.getElementById('uptime').textContent = `${hours}h ${minutes}m ${seconds}s`;
+          
+          // Update memory usage
+          const memoryUsedPercent = data.heap_used_percent || 
+            ((data.heap_total - data.heap_free) / data.heap_total * 100);
+          document.getElementById('memory').textContent = `${memoryUsedPercent.toFixed(1)}% used`;
+          
+          // Update last sensor update time
+          if (data.last_update && data.last_update > 0) {
+            const lastUpdateDate = new Date(data.last_update);
+            document.getElementById('lastUpdate').textContent = lastUpdateDate.toLocaleTimeString();
+          } else {
+            document.getElementById('lastUpdate').textContent = 'Never';
+          }
+          
+          // Update network count
+          document.getElementById('networkCount').textContent = data.networks_found || 0;
+        })
+        .catch(error => {
+          console.error('Error fetching system info:', error);
+          // Don't update display on error to avoid flickering
+        });
     }
 
     function updateSystemStatus(status, message) {
@@ -1339,7 +1542,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           icon = '🔴';
           break;
         case 'connecting':
-          icon = '🟡';
+          icon = '<div class="loading"></div>';
           break;
         default:
           icon = '⚪';
@@ -1347,123 +1550,13 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       
       statusElement.innerHTML = `
         <div class="status-chip ${statusClass}">
-          ${status === 'connecting' ? '<div class="loading"></div>' : icon}
+          ${icon}
           ${message}
         </div>
       `;
     }
 
-    function updateSystemInfo() {
-      const now = Date.now();
-      const uptime = Math.floor((now - systemState.system.startTime) / 1000);
-      const hours = Math.floor(uptime / 3600);
-      const minutes = Math.floor((uptime % 3600) / 60);
-      const seconds = uptime % 60;
-      
-      document.getElementById('uptime').textContent = `${hours}h ${minutes}m ${seconds}s`;
-      document.getElementById('memory').textContent = '78% (simulated)';
-      document.getElementById('lastUpdate').textContent = 
-        systemState.connection.lastUpdate ? systemState.connection.lastUpdate.toLocaleTimeString() : '--';
-      
-      if (document.getElementById('networkCount').textContent === '--') {
-        document.getElementById('networkCount').textContent = systemState.availableNetworks.length;
-      }
-    }
-
-    function updateWiFiStatus() {
-      fetch('/api/wifi/status')
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log('WiFi status:', data);
-          const statusDisplay = document.getElementById('wifiStatusDisplay');
-          let statusHTML = '';
-          
-          statusHTML += `
-            <div class="status-item">
-              <span class="status-label">Access Point</span>
-              <span class="status-value">
-                <div class="status-indicator status-connected"></div>
-                ${data.ap.ssid} (${data.ap.connected_clients} devices)
-              </span>
-            </div>
-            <div class="status-item">
-              <span class="status-label">AP IP Address</span>
-              <span class="status-value">${data.ap.ip}</span>
-            </div>
-          `;
-          
-          if (data.sta.connected) {
-            const signalBars = getSignalBars(data.sta.rssi);
-            statusHTML += `
-              <div class="status-item">
-                <span class="status-label">Internet Connection</span>
-                <span class="status-value">
-                  <div class="status-indicator status-connected"></div>
-                  Connected to ${data.sta.ssid}
-                </span>
-              </div>
-              <div class="status-item">
-                <span class="status-label">IP Address</span>
-                <span class="status-value">${data.sta.ip}</span>
-              </div>
-              <div class="status-item">
-                <span class="status-label">Signal Strength</span>
-                <span class="status-value">
-                  ${signalBars}
-                  ${data.sta.rssi} dBm
-                </span>
-              </div>
-            `;
-          } else {
-            statusHTML += `
-              <div class="status-item">
-                <span class="status-label">Internet Connection</span>
-                <span class="status-value">
-                  <div class="status-indicator status-disconnected"></div>
-                  Not connected
-                </span>
-              </div>
-            `;
-          }
-          
-          statusDisplay.innerHTML = statusHTML;
-          systemState.connection.retryCount = 0;
-        })
-        .catch(error => {
-          console.error('Error fetching WiFi status:', error);
-          systemState.connection.retryCount++;
-          
-          if (systemState.connection.retryCount > 3) {
-            updateSystemStatus('offline', 'Connection lost');
-          }
-          
-          document.getElementById('wifiStatusDisplay').innerHTML = `
-            <div class="status-item">
-              <span class="status-label">Status</span>
-              <span class="status-value">
-                <div class="status-indicator status-disconnected"></div>
-                Error fetching status (Retry ${systemState.connection.retryCount})
-              </span>
-            </div>
-          `;
-        });
-    }
-
-    function getSignalBars(rssi) {
-      const strength = Math.max(0, Math.min(4, Math.floor((rssi + 100) / 12.5)));
-      let bars = '<div class="signal-strength">';
-      for (let i = 1; i <= 4; i++) {
-        bars += `<div class="signal-bar ${i <= strength ? 'active' : ''}"></div>`;
-      }
-      bars += '</div>';
-      return bars;
-    }
-
+    // Automation Control Functions
     function toggleAutoTemperature() {
       systemState.automation.temperature = !systemState.automation.temperature;
       const toggle = document.getElementById('tempToggle');
@@ -1497,95 +1590,145 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     }
 
     function saveThresholds() {
-      const tempMin = document.getElementById('tempMin').value;
-      const tempMax = document.getElementById('tempMax').value;
-      const humidity = document.getElementById('humidityThreshold').value;
-      const light = document.getElementById('lightThreshold').value;
+      const tempMin = parseFloat(document.getElementById('tempMin').value);
+      const tempMax = parseFloat(document.getElementById('tempMax').value);
+      const humidity = parseFloat(document.getElementById('humidityThreshold').value);
+      const light = parseFloat(document.getElementById('lightThreshold').value);
       
       let updated = false;
+      let errors = [];
       
-      if (tempMin && !isNaN(tempMin)) {
-        systemState.thresholds.tempMin = parseFloat(tempMin);
+      if (!isNaN(tempMin) && tempMin >= 0 && tempMin <= 50) {
+        systemState.thresholds.tempMin = tempMin;
         updated = true;
+      } else if (document.getElementById('tempMin').value) {
+        errors.push('Invalid minimum temperature (0-50°C)');
       }
       
-      if (tempMax && !isNaN(tempMax)) {
-        systemState.thresholds.tempMax = parseFloat(tempMax);
+      if (!isNaN(tempMax) && tempMax >= 0 && tempMax <= 50) {
+        systemState.thresholds.tempMax = tempMax;
         updated = true;
+      } else if (document.getElementById('tempMax').value) {
+        errors.push('Invalid maximum temperature (0-50°C)');
       }
       
-      if (humidity && !isNaN(humidity)) {
-        systemState.thresholds.humidity = parseFloat(humidity);
+      if (!isNaN(humidity) && humidity >= 0 && humidity <= 100) {
+        systemState.thresholds.humidity = humidity;
         updated = true;
+      } else if (document.getElementById('humidityThreshold').value) {
+        errors.push('Invalid humidity threshold (0-100%)');
       }
       
-      if (light && !isNaN(light)) {
-        systemState.thresholds.light = parseFloat(light);
+      if (!isNaN(light) && light >= 0 && light <= 100000) {
+        systemState.thresholds.light = light;
         updated = true;
+      } else if (document.getElementById('lightThreshold').value) {
+        errors.push('Invalid light threshold (0-100000 lx)');
       }
       
-      if (updated) {
+      if (errors.length > 0) {
+        showMessage('Errors: ' + errors.join(', '), 'error', 'thresholdMessage');
+      } else if (updated) {
         showMessage('Thresholds saved successfully!', 'success', 'thresholdMessage');
         saveSettings();
+        console.log('Updated thresholds:', systemState.thresholds);
       } else {
-        showMessage('Please enter at least one threshold value', 'error', 'thresholdMessage');
+        showMessage('Please enter at least one threshold value', 'warning', 'thresholdMessage');
       }
     }
 
     function saveSettings() {
       const settings = {
         automation: systemState.automation,
-        thresholds: systemState.thresholds
+        thresholds: systemState.thresholds,
+        timestamp: Date.now()
       };
       
-      window.greenhouseSettings = settings;
-      console.log('Settings saved:', settings);
+      try {
+        window.greenhouseSettings = settings;
+        console.log('Settings saved to memory:', settings);
+      } catch (error) {
+        console.error('Error saving settings:', error);
+      }
     }
 
     function loadStoredSettings() {
-      const stored = window.greenhouseSettings;
-      if (stored) {
-        systemState.automation = { ...systemState.automation, ...stored.automation };
-        systemState.thresholds = { ...systemState.thresholds, ...stored.thresholds };
-        
-        Object.keys(systemState.automation).forEach(key => {
-          const toggle = document.getElementById(key + 'Toggle');
-          if (toggle) {
-            toggle.classList.toggle('active', systemState.automation[key]);
-          }
-        });
-        
-        Object.keys(systemState.thresholds).forEach(key => {
-          const input = document.getElementById(key === 'tempMin' ? 'tempMin' : 
-                                                 key === 'tempMax' ? 'tempMax' :
-                                                 key === 'humidity' ? 'humidityThreshold' : 
-                                                 key === 'light' ? 'lightThreshold' : null);
-          if (input) {
-            input.value = systemState.thresholds[key];
-          }
-        });
-        console.log('Stored settings loaded:', stored);
+      try {
+        const stored = window.greenhouseSettings;
+        if (stored && stored.automation && stored.thresholds) {
+          console.log('Loading stored settings:', stored);
+          
+          // Restore automation states
+          Object.keys(systemState.automation).forEach(key => {
+            if (stored.automation.hasOwnProperty(key)) {
+              systemState.automation[key] = stored.automation[key];
+              const toggle = document.getElementById(key + 'Toggle');
+              if (toggle) {
+                toggle.classList.toggle('active', systemState.automation[key]);
+              }
+            }
+          });
+          
+          // Restore thresholds
+          Object.keys(systemState.thresholds).forEach(key => {
+            if (stored.thresholds.hasOwnProperty(key)) {
+              systemState.thresholds[key] = stored.thresholds[key];
+              
+              // Update input fields
+              const inputId = key === 'tempMin' ? 'tempMin' : 
+                             key === 'tempMax' ? 'tempMax' :
+                             key === 'humidity' ? 'humidityThreshold' : 
+                             key === 'light' ? 'lightThreshold' : null;
+              
+              const input = document.getElementById(inputId);
+              if (input) {
+                input.value = systemState.thresholds[key];
+              }
+            }
+          });
+          
+          console.log('Settings loaded successfully');
+        } else {
+          console.log('No stored settings found, using defaults');
+        }
+      } catch (error) {
+        console.error('Error loading stored settings:', error);
       }
     }
 
     function showMessage(message, type, containerId) {
       const container = document.getElementById(containerId);
-      if (!container) return;
+      if (!container) {
+        console.warn(`Message container '${containerId}' not found`);
+        return;
+      }
       
-      console.log(`Message [${type}]:`, message);
+      console.log(`Message [${type}] in ${containerId}:`, message);
+      
       container.innerHTML = `<div class="message ${type}">${message}</div>`;
       
-      setTimeout(() => {
-        container.innerHTML = "";
-      }, 5000);
+      // Auto-clear message after 5 seconds (except for errors)
+      if (type !== 'error') {
+        setTimeout(() => {
+          container.innerHTML = "";
+        }, 5000);
+      } else {
+        // Clear errors after 10 seconds
+        setTimeout(() => {
+          container.innerHTML = "";
+        }, 10000);
+      }
     }
 
+    // Event Listeners and Utility Functions
     document.addEventListener('keydown', function(e) {
+      // Ctrl+R: Refresh page
       if (e.ctrlKey && e.key === 'r') {
         e.preventDefault();
         location.reload();
       }
       
+      // Escape: Clear all messages
       if (e.key === 'Escape') {
         ['connectionMessage', 'thresholdMessage', 'controlMessage'].forEach(id => {
           const el = document.getElementById(id);
@@ -1593,33 +1736,53 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         });
       }
       
+      // Ctrl+S: Scan networks
       if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
         scanWiFiNetworks();
       }
     });
 
-    window.addEventListener('error', function(e) {
-      console.error('Global error:', e.error);
-      updateSystemStatus('offline', 'System error detected');
-    });
-
+    // Handle page visibility changes
     document.addEventListener('visibilitychange', function() {
       if (document.visibilityState === 'visible') {
-        console.log('Tab visible, resuming updates...');
-        updateWiFiStatus();
-        updateSensors();
+        console.log('Page visible, resuming updates...');
+        startUpdateIntervals();
+        
+        // Immediate updates when page becomes visible
+        setTimeout(() => {
+          updateWiFiStatus();
+          updateSensors();
+          updateSystemInfo();
+        }, 500);
+      } else {
+        console.log('Page hidden, pausing updates...');
+        // Don't clear timers completely, just reduce frequency
       }
     });
 
+    // Global error handler
+    window.addEventListener('error', function(e) {
+      console.error('Global JavaScript error:', e.error);
+      updateSystemStatus('offline', 'JavaScript error detected');
+    });
+
+    // Unhandled promise rejection handler
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('Unhandled promise rejection:', e.reason);
+    });
+
+    // Auto-scan for networks periodically if none available
     setInterval(() => {
       if (systemState.availableNetworks.length === 0 && 
           !systemState.scanInProgress && 
-          scanRetryCount < maxScanRetries) {
+          document.visibilityState === 'visible') {
         console.log('Auto-scanning for networks (no networks available)');
         scanWiFiNetworks();
       }
-    }, 45000);
+    }, 60000); // Every minute
+
+    console.log('Greenhouse Control Dashboard loaded successfully');
   </script>
 </body>
 </html>)rawliteral";
