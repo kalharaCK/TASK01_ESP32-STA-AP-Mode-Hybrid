@@ -913,7 +913,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     document.addEventListener('DOMContentLoaded', function() {
       console.log('Dashboard initializing...');
       updateSystemStatus('connecting', 'Initializing system...');
-      startSensorSimulation();
+      
       loadStoredSettings();
       
       setInterval(updateSensors, 3000);
@@ -1240,37 +1240,45 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         });
     }
 
-    function startSensorSimulation() {
-      systemState.sensors.temperature.current = 22 + Math.random() * 6;
-      systemState.sensors.humidity.current = 60 + Math.random() * 20;
-      systemState.sensors.light.current = 500 + Math.random() * 1000;
-      
-      updateSensorDisplays();
-    }
-
     function updateSensors() {
+  fetch('/api/sensors')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
       const temp = systemState.sensors.temperature;
       const humidity = systemState.sensors.humidity;
       const light = systemState.sensors.light;
-      
+
+      // Shift previous values
       temp.previous = temp.current;
       humidity.previous = humidity.current;
       light.previous = light.current;
-      
-      temp.current = Math.max(15, Math.min(35, temp.current + (Math.random() - 0.5) * 2));
-      humidity.current = Math.max(30, Math.min(90, humidity.current + (Math.random() - 0.5) * 5));
-      light.current = Math.max(0, Math.min(2000, light.current + (Math.random() - 0.5) * 200));
-      
+
+      // Assign new values from ESP32 API
+      temp.current = data.temperature;
+      humidity.current = data.humidity;
+      light.current = data.light;
+
+      // Trend calculation
       temp.trend = calculateTrend(temp.previous, temp.current);
       humidity.trend = calculateTrend(humidity.previous, humidity.current);
       light.trend = calculateTrend(light.previous, light.current);
-      
+
       systemState.system.dataPoints++;
       systemState.connection.lastUpdate = new Date();
-      
+
       updateSensorDisplays();
       checkThresholds();
-    }
+    })
+    .catch(error => {
+      console.error("Error fetching sensors:", error);
+      updateSystemStatus('offline', 'Sensor data unavailable');
+    });
+}
 
     function calculateTrend(previous, current) {
       if (previous === null) return 'stable';
