@@ -1,76 +1,80 @@
 /*
-  ESP32 Hybrid Mode WiFi Manager with Captive Portal, Embedded Dashboard, and MQTT Publisher
-  ------------------------------------------------------------------------------------------
-  - AP + STA mode
-  - Serves embedded HTML dashboard from flash
-  - Scans nearby WiFi networks
-  - Connects/disconnects from WiFi
-  - JSON API for UI (incl. /api/sensors)
-  - Robust captive portal (DNS spoof, OS probe endpoints, host-agnostic redirect)
-  - Publishes simulated sensor data via MQTT (PubSubClient)
+  ESP32 WiFi Manager with Captive Portal + Dashboard
+  ---------------------------------------------------
+  - Button double-press switches to Config Mode
+  - Normal Mode: AP + STA, serves index_html dashboard
+  - Config Mode: AP only, serves config_html page
+  - Persistent AP SSID/password in NVS
+  - API endpoints for index_html.h to be fully functional
 */
 
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <ArduinoJson.h>
-#include <PubSubClient.h>
-#include "index_html.h"  // Embedded HTML UI (see updated snippet further below)
+#include <Preferences.h>
+#include "index_html.h"
+#include "config_html.h"
 
-// ===================== CONFIGURATION =====================
-static const char* apSSID = "ESP32_AP";
-static const char* apPassword = "12345678";
+// ===================== CONFIG =====================
+#define BUTTON_PIN 26
+#define DEBOUNCE_TIME 50
+#define DOUBLE_PRESS_TIME 2000
+const byte DNS_PORT = 53;
 
-// MQTT Broker Settings
-static const char* mqttServer = "broker.hivemq.com";
-static const int   mqttPort   = 1883;
-static const char* mqttTopic  = "esp32/sensor/data";
+// Defaults if nothing stored in NVS
+static const char* DEFAULT_AP_SSID = "ESP32-Normal";
+static const char* DEFAULT_AP_PASS = "12345678";
+static const char* DEFAULT_CFG_SSID = "ESP32-Config";
+static const char* DEFAULT_CFG_PASS = "12345678";
 
-// ===================== GLOBALS ============================
+// ===================== GLOBALS ====================
 WebServer   server(80);
 DNSServer   dnsServer;
-WiFiClient  espClient;
-PubSubClient mqttClient(espClient);
+Preferences prefs;
 
-const byte DNS_PORT = 53;
+volatile unsigned long lastPressTime = 0;
+volatile unsigned long firstPressTime = 0;
+volatile bool buttonPressed = false;
+volatile int pressCount = 0;
+
+bool configMode = false;
 
 IPAddress apIP(192,168,4,1);
 IPAddress apGateway(192,168,4,1);
 IPAddress apSubnet(255,255,255,0);
 
-// Cache variables for last WiFi scan
-String lastScanJson;
-bool   lastScanAvailable = false;
-
 // Simulated sensor values
-int   tempVal     = 25;
-int   lightVal    = 500;
+float tempVal = 25.0;
 float humidityVal = 60.0;
+int   lightVal = 500;
 
-// =================== Helper Functions ====================
-String encryptionTypeStr(wifi_auth_mode_t type) {
-  switch (type) {
-    case WIFI_AUTH_OPEN:            return "Open";
-    case WIFI_AUTH_WEP:             return "WEP";
-    case WIFI_AUTH_WPA_PSK:         return "WPA";
-    case WIFI_AUTH_WPA2_PSK:        return "WPA2";
-    case WIFI_AUTH_WPA_WPA2_PSK:    return "WPA/WPA2";
-#ifdef WIFI_AUTH_WPA3_PSK
-    case WIFI_AUTH_WPA3_PSK:        return "WPA3";
-#endif
-#ifdef WIFI_AUTH_WPA2_WPA3_PSK
-    case WIFI_AUTH_WPA2_WPA3_PSK:   return "WPA2/WPA3";
-#endif
-    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-Enterprise";
-    default:                        return "Unknown";
+// ===================== BUTTON ISR =================
+void IRAM_ATTR handleButton() {
+  unsigned long now = millis();
+  if (now - lastPressTime > DEBOUNCE_TIME) {
+    pressCount++;
+    buttonPressed = true;
+    lastPressTime = now;
   }
 }
 
-// Any request with a Host header not matching our AP IP is treated as captive
+// ===================== HELPERS ====================
+String encryptionTypeStr(wifi_auth_mode_t type) {
+  switch (type) {
+    case WIFI_AUTH_OPEN: return "Open";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2";
+    case WIFI_AUTH_WPA3_PSK: return "WPA3";
+    default: return "Unknown";
+  }
+}
+
 bool isCaptivePortal() {
   if (!server.hasHeader("Host")) return true;
   String host = server.header("Host");
-  // Accept "ap ip" or "ap ip:80"
   if (host == apIP.toString() || host == (apIP.toString() + ":80")) return false;
   return true;
 }
@@ -79,191 +83,30 @@ void sendRedirectToRoot() {
   String url = "http://" + apIP.toString() + "/";
   server.sendHeader("Location", url, true);
   server.send(302, "text/plain", "");
-  Serial.printf("[HTTP] Captive redirect -> %s\n", url.c_str());
 }
 
-// ================= MQTT Functions ========================
-void mqttReconnect() {
-  while (!mqttClient.connected() && WiFi.status() == WL_CONNECTED) {
-    Serial.print("[MQTT] Connecting...");
-    if (mqttClient.connect("ESP32_Client")) {
-      Serial.println("connected!");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" retry in 2s");
-      delay(2000);
-    }
-  }
-}
+// ===================== API HANDLERS ====================
+void handleSensors() {
+  StaticJsonDocument<256> doc;
+  // Simulate value drift
+  tempVal += random(-5, 6) * 0.1; if (tempVal < 15) tempVal = 15; if (tempVal > 35) tempVal = 35;
+  humidityVal += random(-3, 4) * 0.5; if (humidityVal < 20) humidityVal = 20; if (humidityVal > 90) humidityVal = 90;
+  lightVal += random(-20, 21); if (lightVal < 100) lightVal = 100; if (lightVal > 2000) lightVal = 2000;
 
-void publishSensorData() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (!mqttClient.connected()) mqttReconnect();
-  mqttClient.loop();
-
-  char payload[100];
-  snprintf(payload, sizeof(payload),
-           "{\"temp\":%d,\"light\":%d,\"humidity\":%.2f}",
-           tempVal, lightVal, humidityVal);
-
-  bool ok = mqttClient.publish(mqttTopic, payload);
-  Serial.printf("[MQTT] Publish [%s]: %s\n", ok ? "OK" : "FAIL", payload);
-
-  // Update simulated values (varied but bounded)
-  tempVal     = 20 + random(0, 11);
-  lightVal    = 400 + random(0, 201);
-  humidityVal = 50  + random(0, 21);
-}
-
-// ===================== HTTP Handlers =====================
-// Serve the dashboard
-void handleRoot() {
-  Serial.println("[HTTP] GET / (dashboard)");
-  // Serve from PROGMEM blob
-  server.setContentLength(index_html_len);
-  server.send(200, "text/html", (const char*)index_html);
-}
-
-// OS captive probes -> force the captive portal UI
-void handleAndroidProbe() {  // /generate_204
-  Serial.println("[HTTP] Android probe -> redirect");
-  sendRedirectToRoot();
-}
-void handleAppleProbe() {    // /hotspot-detect.html
-  Serial.println("[HTTP] Apple probe -> simple page");
-  server.send(200, "text/html",
-              "<html><head><meta http-equiv='refresh' content='0; url=/'/></head>"
-              "<body>Login...</body></html>");
-}
-void handleWindowsProbe() {  // /ncsi.txt and /connecttest.txt
-  Serial.println("[HTTP] Windows probe -> redirect");
-  sendRedirectToRoot();
-}
-
-// Generic: if host mismatches, redirect; otherwise serve index
-void handleAnyPath() {
-  if (isCaptivePortal()) {
-    Serial.printf("[HTTP] Captive host redirect from path: %s\n", server.uri().c_str());
-    sendRedirectToRoot();
-    return;
-  }
-  Serial.printf("[HTTP] GET %s -> serve index\n", server.uri().c_str());
-  handleRoot();
-}
-
-void handleScan() {
-  Serial.println("[HTTP] GET /api/wifi/scan -> starting scan...");
-  int n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/true);
-  Serial.printf("[WIFI] Networks found: %d\n", n);
-
-  DynamicJsonDocument doc(4096);
-  doc["status"] = "success";
-  doc["count"]  = (n > 0) ? n : 0;
-  JsonArray nets = doc.createNestedArray("networks");
-
-  if (n > 0) {
-    for (int i = 0; i < n; ++i) {
-      String encStr = encryptionTypeStr(WiFi.encryptionType(i));
-      bool isEnc = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
-
-      JsonObject net = nets.createNestedObject();
-      net["ssid"]       = WiFi.SSID(i);
-      net["rssi"]       = WiFi.RSSI(i);
-      net["channel"]    = WiFi.channel(i);
-      net["bssid"]      = WiFi.BSSIDstr(i);
-      net["encryption"] = encStr;
-      net["encrypted"]  = isEnc;
-    }
-  }
+  doc["temperature"] = tempVal;
+  doc["humidity"]    = humidityVal;
+  doc["light"]       = lightVal;
 
   String out;
   serializeJson(doc, out);
-  lastScanJson = out;
-  lastScanAvailable = true;
-
-  WiFi.scanDelete();
   server.send(200, "application/json", out);
-  Serial.printf("[HTTP] /api/wifi/scan -> responded with %d networks\n", n);
 }
 
-void handleScanResults() {
-  Serial.println("[HTTP] GET /api/wifi/scan/results");
-  if (lastScanAvailable) {
-    server.send(200, "application/json", lastScanJson);
-  } else {
-    server.send(404, "application/json",
-                "{\"status\":\"error\",\"message\":\"No scan results\"}");
-  }
-}
-
-void handleConnect() {
-  Serial.println("[HTTP] POST /api/wifi/connect -> connect request");
-  if (server.method() != HTTP_POST) {
-    server.send(405, "text/plain", "Method Not Allowed");
-    return;
-  }
-
-  String body = server.arg("plain");
-  Serial.printf("[HTTP] Body: %s\n", body.c_str());
-  DynamicJsonDocument req(512);
-  if (deserializeJson(req, body)) {
-    server.send(400, "application/json",
-                "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
-    return;
-  }
-
-  const char* ssid = req["ssid"] | "";
-  const char* password = req["password"] | "";
-  if (strlen(ssid) == 0) {
-    server.send(400, "application/json",
-                "{\"status\":\"error\",\"message\":\"Missing SSID\"}");
-    return;
-  }
-
-  Serial.printf("[WIFI] Connecting to SSID: %s\n", ssid);
-  if (strlen(password) > 0) WiFi.begin(ssid, password);
-  else                      WiFi.begin(ssid);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-    delay(250);
-    Serial.print(".");
-    attempts++;
-  }
-  Serial.println();
-
-  DynamicJsonDocument resp(512);
-  if (WiFi.status() == WL_CONNECTED) {
-    resp["status"]  = "success";
-    resp["message"] = "Connected";
-    resp["ssid"]    = WiFi.SSID();
-    resp["ip"]      = WiFi.localIP().toString();
-    Serial.printf("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-  } else {
-    resp["status"]  = "error";
-    resp["message"] = "Failed to connect";
-    Serial.println("[WIFI] Failed to connect.");
-  }
-
-  String out;
-  serializeJson(resp, out);
-  server.send(WiFi.status() == WL_CONNECTED ? 200 : 500, "application/json", out);
-}
-
-void handleDisconnect() {
-  Serial.println("[HTTP] POST /api/wifi/disconnect -> disconnecting");
-  WiFi.disconnect(true, true);
-  server.send(200, "application/json",
-              "{\"status\":\"success\",\"message\":\"Disconnected\"}");
-}
-
-void handleStatus() {
-  Serial.println("[HTTP] GET /api/wifi/status");
-  DynamicJsonDocument doc(512);
+void handleWiFiStatus() {
+  StaticJsonDocument<512> doc;
   JsonObject ap = doc.createNestedObject("ap");
-  ap["ssid"] = apSSID;
-  ap["ip"]   = apIP.toString();
+  ap["ssid"] = WiFi.softAPSSID();
+  ap["ip"] = WiFi.softAPIP().toString();
   ap["connected_clients"] = WiFi.softAPgetStationNum();
 
   JsonObject sta = doc.createNestedObject("sta");
@@ -279,84 +122,192 @@ void handleStatus() {
   server.send(200, "application/json", out);
 }
 
-void handleSensors() {
-  // Provide the same values the device is publishing to MQTT
-  DynamicJsonDocument doc(256);
-  doc["temperature"] = tempVal;
-  doc["humidity"]    = humidityVal;
-  doc["light"]       = lightVal;
+void handleScan() {
+  int n = WiFi.scanNetworks(false, true);
+  DynamicJsonDocument doc(2048);
+  doc["status"] = "success";
+  doc["count"] = (n > 0) ? n : 0;
+  JsonArray nets = doc.createNestedArray("networks");
 
+  for (int i = 0; i < n; i++) {
+    JsonObject net = nets.createNestedObject();
+    net["ssid"] = WiFi.SSID(i);
+    net["rssi"] = WiFi.RSSI(i);
+    net["channel"] = WiFi.channel(i);
+    net["bssid"] = WiFi.BSSIDstr(i);
+    net["encryption"] = encryptionTypeStr(WiFi.encryptionType(i));
+    net["encrypted"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+  }
+
+  WiFi.scanDelete();
   String out;
   serializeJson(doc, out);
   server.send(200, "application/json", out);
-  Serial.printf("[HTTP] /api/sensors -> %s\n", out.c_str());
 }
 
-// ========================= SETUP ===========================
-void setup() {
-  // Give the serial monitor a moment to attach
-  delay(200);
-  Serial.begin(115200);
-  delay(200);
-  Serial.println();
-  Serial.println("===== ESP32 WiFi Manager Booting =====");
-
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_AP_STA);
-
-  // Configure AP IP explicitly (more reliable on some cores)
-  if (!WiFi.softAPConfig(apIP, apGateway, apSubnet)) {
-    Serial.println("[AP] softAPConfig FAILED, using default 192.168.4.1");
+void handleConnect() {
+  if (server.method() != HTTP_POST) {
+    server.send(405, "text/plain", "Method Not Allowed");
+    return;
   }
-  bool apOk = WiFi.softAP(apSSID, apPassword);
-  if (!apOk) {
-    Serial.println("[AP] softAP FAILED!");
+  DynamicJsonDocument req(256);
+  if (deserializeJson(req, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+    return;
+  }
+  String ssid = req["ssid"] | "";
+  String pass = req["password"] | "";
+
+  if (ssid == "") {
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing SSID\"}");
+    return;
+  }
+
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  int tries = 0;
+  while (WiFi.status() != WL_CONNECTED && tries < 40) {
+    delay(250);
+    tries++;
+  }
+
+  DynamicJsonDocument resp(256);
+  if (WiFi.status() == WL_CONNECTED) {
+    resp["status"] = "success";
+    resp["message"] = "Connected";
+    resp["ssid"] = WiFi.SSID();
+    resp["ip"] = WiFi.localIP().toString();
   } else {
-    Serial.printf("[AP] SSID: %s  PASS: %s  IP: %s\n",
-                  apSSID, apPassword, WiFi.softAPIP().toString().c_str());
+    resp["status"] = "error";
+    resp["message"] = "Failed to connect";
   }
-
-  // Start DNS wildcard -> everything to our AP IP
-  bool dnsOk = dnsServer.start(DNS_PORT, "*", apIP);
-  Serial.printf("[DNS] start(%d, *, %s) -> %s\n", DNS_PORT,
-                apIP.toString().c_str(), dnsOk ? "OK" : "FAIL");
-
-  // --- Web routes ---
-  // Captive portal / OS probes
-  server.on("/generate_204", HTTP_ANY, handleAndroidProbe);   // Android
-  server.on("/hotspot-detect.html", HTTP_ANY, handleAppleProbe); // iOS/macOS
-  server.on("/ncsi.txt", HTTP_ANY, handleWindowsProbe);       // Windows
-  server.on("/connecttest.txt", HTTP_ANY, handleWindowsProbe);// Win alt
-
-  // API
-  server.on("/api/wifi/scan",        HTTP_GET,  handleScan);
-  server.on("/api/wifi/scan/results",HTTP_GET,  handleScanResults);
-  server.on("/api/wifi/connect",     HTTP_POST, handleConnect);
-  server.on("/api/wifi/disconnect",  HTTP_POST, handleDisconnect);
-  server.on("/api/wifi/status",      HTTP_GET,  handleStatus);
-  server.on("/api/sensors",          HTTP_GET,  handleSensors);
-
-  // Dashboard at "/" and also catch-all for any HTTP path
-  server.on("/", HTTP_ANY, handleRoot);
-  server.onNotFound(handleAnyPath);
-
-  server.begin();
-  Serial.println("[HTTP] server started on port 80");
-
-  // MQTT setup
-  mqttClient.setServer(mqttServer, mqttPort);
-  Serial.printf("[MQTT] broker: %s:%d topic: %s\n", mqttServer, mqttPort, mqttTopic);
-  Serial.println("[BOOT] Setup complete.");
+  String out;
+  serializeJson(resp, out);
+  server.send(200, "application/json", out);
 }
 
-// ========================= LOOP ============================
+void handleDisconnect() {
+  WiFi.disconnect(true, true);
+  server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Disconnected\"}");
+}
+
+// /save in Config Mode
+void handleSave() {
+  if (server.method() == HTTP_POST) {
+    String ssid = server.arg("ssid");
+    String pass = server.arg("password");
+
+    prefs.begin("wifi", false);
+    prefs.putString("ap_ssid", ssid);
+    prefs.putString("ap_pass", pass);
+    prefs.end();
+
+    server.send(200, "text/html", "<html><body><h2>Saved! Rebooting...</h2></body></html>");
+    delay(1000);
+    ESP.restart();
+  } else {
+    server.send(405, "text/plain", "Method Not Allowed");
+  }
+}
+
+// ===================== SERVER MODES ====================
+void setupServerRoutes() {
+  // Unified root
+  server.on("/", HTTP_GET, [](){
+    if (configMode) {
+      server.send(200, "text/html", config_html);
+    } else {
+      server.send(200, "text/html", index_html);
+    }
+  });
+
+  // APIs (only valid in Normal Mode)
+  server.on("/api/sensors", HTTP_GET, handleSensors);
+  server.on("/api/wifi/status", HTTP_GET, handleWiFiStatus);
+  server.on("/api/wifi/scan", HTTP_GET, handleScan);
+  server.on("/api/wifi/scan/results", HTTP_GET, handleScan);
+  server.on("/api/wifi/connect", HTTP_POST, handleConnect);
+  server.on("/api/wifi/disconnect", HTTP_POST, handleDisconnect);
+
+  // Config Mode handler
+  server.on("/save", HTTP_POST, handleSave);
+
+  // Unified onNotFound
+  server.onNotFound([](){
+    if (isCaptivePortal()) {
+      sendRedirectToRoot();
+    } else {
+      if (configMode) {
+        server.send(200, "text/html", config_html);
+      } else {
+        server.send(200, "text/html", index_html);
+      }
+    }
+  });
+  server.begin();
+}
+
+void startNormalMode() {
+  prefs.begin("wifi", true);
+  String ap_ssid = prefs.getString("ap_ssid", DEFAULT_AP_SSID);
+  String ap_pass = prefs.getString("ap_pass", DEFAULT_AP_PASS);
+  prefs.end();
+
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAPConfig(apIP, apGateway, apSubnet);
+  if (ap_pass == "") WiFi.softAP(ap_ssid.c_str());
+  else WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
+
+  dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+  setupServerRoutes();
+}
+
+void startConfigMode() {
+  prefs.begin("wifi", true);
+  String ap_ssid = prefs.getString("ap_ssid", DEFAULT_CFG_SSID);
+  String ap_pass = prefs.getString("ap_pass", DEFAULT_CFG_PASS);
+  prefs.end();
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(apIP, apGateway, apSubnet);
+  if (ap_pass == "") WiFi.softAP(ap_ssid.c_str());
+  else WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
+
+  dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+  setupServerRoutes();
+}
+
+// ===================== SETUP/LOOP ====================
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButton, FALLING);
+
+  randomSeed(analogRead(0));
+  startNormalMode();
+}
+
 void loop() {
   dnsServer.processNextRequest();
   server.handleClient();
 
-  if (WiFi.status() == WL_CONNECTED) {
-    publishSensorData();
+  if (buttonPressed) {
+    buttonPressed = false;
+    if (pressCount == 1) {
+      firstPressTime = millis();
+    }
+    else if (pressCount == 2) {
+      unsigned long interval = millis() - firstPressTime;
+      if (interval <= DOUBLE_PRESS_TIME) {
+        configMode = true;
+        server.stop();
+        dnsServer.stop();
+        startConfigMode();
+      }
+      pressCount = 0;
+    }
   }
-
-  delay(1000);
+  if (pressCount == 1 && (millis() - firstPressTime > DOUBLE_PRESS_TIME)) {
+    pressCount = 0;
+  }
 }
