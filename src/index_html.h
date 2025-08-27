@@ -741,9 +741,28 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" for="PW">Password</label>
-          <input type="password" id="PW" class="form-input" placeholder="Enter WiFi password (leave empty for open networks)" />
-        </div>
+  <label class="form-label" for="PW">Password</label>
+  <div style="position: relative; display: flex; align-items: center;">
+    <input type="password" id="PW" class="form-input" 
+      placeholder="Enter WiFi password (leave empty for open networks)" />
+    <button type="button" id="togglePW" 
+      style="position: absolute; right: 12px; background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-secondary);">
+      <!-- Default "eye" icon -->
+      <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:20px; height:20px;">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      </svg>
+      <!-- Hidden "eye-off" icon -->
+      <svg id="eyeClosed" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:20px; height:20px; display:none;">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.967 9.967 0 012.368-4.592m2.296-1.82A9.956 9.956 0 0112 5c4.478 0 8.268 2.943 9.542 7a9.967 9.967 0 01-4.043 5.412M15 12a3 3 0 00-3-3m0 0a3 3 0 013 3m-3-3l-7 7" />
+      </svg>
+    </button>
+  </div>
+</div>
+
         <div class="btn-group">
           <button class="btn btn-primary" onclick="connectToWiFi()" id="connectBtn">
             Connect Network
@@ -844,6 +863,23 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
   </div>
 
   <script>
+
+    document.addEventListener("DOMContentLoaded", () => {
+  const pwField = document.getElementById("PW");
+  const toggleBtn = document.getElementById("togglePW");
+  const eyeOpen = document.getElementById("eyeOpen");
+  const eyeClosed = document.getElementById("eyeClosed");
+
+  toggleBtn.addEventListener("click", () => {
+    const isPassword = pwField.type === "password";
+    pwField.type = isPassword ? "text" : "password";
+    eyeOpen.style.display = isPassword ? "none" : "block";
+    eyeClosed.style.display = isPassword ? "block" : "none";
+  });
+});
+
+
+
     let systemState = {
       sensors: {
         temperature: { current: null, previous: null, trend: 'stable' },
